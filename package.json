@@ -1,0 +1,40 @@
+{
+  "name": "@fgfg163/dsh-agentmemory-plugin",
+  "version": "0.10.0",
+  "description": "DeepSeek Harness native integration for AgentMemory: captures session events and injects per-session memory. Community fork of the DSH integration shipped inside @agentmemory/agentmemory, with two local fixes applied. Versioned independently of upstream.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "agentmemory",
+    "memory",
+    "hooks",
+    "capture",
+    "recall"
+  ],
+  "license": "Apache-2.0",
+  "author": "fgfg163",
+  "homepage": "https://github.com/fgfg163/dsh-agentmemory-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/fgfg163/dsh-agentmemory-plugin/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fgfg163/dsh-agentmemory-plugin.git"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

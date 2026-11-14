@@ -1,0 +1,53 @@
+@fgfg163/dsh-agentmemory-plugin
+========================
+
+This package redistributes and modifies work originally published as part of
+@agentmemory/agentmemory.
+
+Upstream work
+-------------
+  Project : agentmemory
+  Author  : Rohit Ghumare <ghumare64@gmail.com>
+  Repo    : https://github.com/rohitg00/agentmemory
+  Version : 0.9.33
+  Source  : src/integrations/dsh.ts (compiled to dist/integrations/dsh.mjs)
+  License : Apache License 2.0
+  Copyright 2026 Rohit Ghumare
+
+The upstream project does not ship the DSH integration as a separate package;
+it is compiled into the main `@agentmemory/agentmemory` bundle.
+
+Modifications (Apache-2.0 section 4(b) — STATEMENT OF CHANGES)
+--------------------------------------------------------------
+File: lib/index.js (derived from dist/integrations/dsh.mjs @ 0.9.33)
+
+  1. 2026-11-02 — Remote plain-HTTP daemons are accepted.
+     The URL guard in post() originally rejected any non-loopback `http://`
+     endpoint even when an explicit bearer secret was configured:
+         ... || secret && target.protocol !== "https:" && !isLoopbackUrl(url)
+     That clause was removed. Licensed under the same terms as upstream.
+
+  2. 2026-11-10 — Injected memory gets its own size ceiling.
+     `safe()` defaults to an 8000-character cap that exists for captured tool
+     output. The `/context` and `/session/start` response bodies are injected
+     memory, not capture output, and were being truncated mid-sentence once
+     the daemon's pinned memory slots exceeded 8000 characters.
+     Added `contextMaxChars(config)` — default 64000, overridable via the
+     plugin's `contextMaxChars` config key or the
+     AGENTMEMORY_CONTEXT_MAX_CHARS environment variable — and passed it at
+     both call sites. The default 8000 cap on captured tool output is
+     unchanged.
+
+  3. 2026-11-14 — Removed the dangling `//# sourceMappingURL=dsh.mjs.map`
+     trailer, since the source map is not part of this package.
+
+Both source patches are marked inline with `PATCHED 2026-11-02` and
+`PATCHED 2026-11-10` comments so they stay visible.
+
+No endorsement
+--------------
+This is an unofficial fork. It is not produced, reviewed, or endorsed by the
+agentmemory project or its author. The name `agentmemory` is used only to
+describe origin, as permitted by Apache-2.0 section 6.
+
+The full upstream license text is reproduced verbatim in ./LICENSE.

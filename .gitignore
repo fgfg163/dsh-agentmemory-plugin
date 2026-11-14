@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local leftovers — never commit these
+*.bak
+*.bak-*
+*.orig
+*.local.*
+.env
+.env.*
+cordis.patch.local.yml
+
+# Session / memory artifacts
+sessions/
+*.jsonl
+*.jsonl.zstd
+
+# Build scratch
+*.tgz
+tmp/
+dist-upstream/

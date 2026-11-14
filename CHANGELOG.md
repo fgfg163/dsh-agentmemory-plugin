@@ -1,7 +1,18 @@
+# 0.10.2
+
+首次通过 GitHub Release 自动发布到 npm 的版本，用来验证 Trusted Publishing
+（OIDC）端到端可用。
+
+功能与 0.10.0 相同，`lib/index.js` 逐字节未变（SHA256 `5347F36F…`），与
+0.10.0、0.10.1 完全一致。tarball 内的实质差异只有版本号字符串。
+
+0.10.1 从未发布到 npm——它只是把版本号抬起来，让 workflow 有一个尚未被占用的
+版本可以尝试，实际发布用 0.10.2 完成。
+
 # 0.10.1
 
-用于验证 GitHub Actions 的 OIDC 发布链路。功能与 0.10.0 相同，`lib/index.js`
-逐字节未变（SHA256 `5347F36F…`）。
+用于验证 GitHub Actions 的 OIDC 发布链路（未实际发布）。功能与 0.10.0 相同，
+`lib/index.js` 逐字节未变（SHA256 `5347F36F…`）。
 
 - 新增 `.gitattributes`，把 workflow 与 shell 文件的换行符固定为 LF，避免
   Windows 下 `core.autocrlf=true` 把它们检出成 CRLF 后，Linux runner 报

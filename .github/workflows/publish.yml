@@ -118,6 +118,20 @@ jobs:
           fi
           echo "tag $GITHUB_REF_NAME matches package.json $ver"
 
+      # A re-run of this workflow on a commit whose version is already on the
+      # registry cannot succeed, and npm says so only after packing the tarball.
+      # Fail early and say which version is the problem.
+      - name: Fail early if this version already exists
+        run: |
+          set -euo pipefail
+          ver=$(node -p "require('./package.json').version")
+          if npm view "@fgfg163/dsh-agentmemory-plugin@$ver" version > /dev/null 2>&1; then
+            echo "::error::$ver is already on the registry. Bump the version in package.json, commit, and run again."
+            npm view "@fgfg163/dsh-agentmemory-plugin@$ver" version dist.tarball
+            exit 1
+          fi
+          echo "$ver is not on the registry yet, continuing"
+
       - name: Publish
         env:
           # Must be empty. setup-node writes an .npmrc pointing at this variable;

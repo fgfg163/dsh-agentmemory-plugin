@@ -1,3 +1,14 @@
+# 0.10.1
+
+用于验证 GitHub Actions 的 OIDC 发布链路。功能与 0.10.0 相同，`lib/index.js`
+逐字节未变（SHA256 `5347F36F…`）。
+
+- 新增 `.gitattributes`，把 workflow 与 shell 文件的换行符固定为 LF，避免
+  Windows 下 `core.autocrlf=true` 把它们检出成 CRLF 后，Linux runner 报
+  `\r: command not found`。
+- workflow 在发布前先查 registry 上是否已有当前版本，有则立刻失败并指出是哪个
+  版本，而不是等到打包完才由 npm 拒绝（那种报错看起来像鉴权问题）。
+
 # 0.10.0
 
 首个发布。基于 `@agentmemory/agentmemory@0.9.33` 的 `dist/integrations/dsh.mjs`。

@@ -97,7 +97,7 @@ jobs:
             exit 1
           fi
 
-          grep -q 'export { apply, name }' lib/index.js \
+          grep -q 'export { apply, Config, name }' lib/index.js \
             || { echo "::error::plugin export shape changed"; exit 1; }
 
           # The artifact is published as-is; keep its size on record so a silent

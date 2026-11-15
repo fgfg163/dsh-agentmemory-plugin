@@ -1,0 +1,25 @@
+# Bundle patch for @fgfg163/dsh-agentmemory-plugin.
+#
+# Mounts the capture/recall row when this package is installed as a bundle.
+# This row lived in the home-level cordis.patch.yml until 2026-11-16; it moved
+# here so the package is a real bundle (visible in Plugin Manager > Installed)
+# and its settings form can be edited from the desktop profile.
+- insert:
+    - id: fgfg163-agentmemory-plugin
+      name: '@fgfg163/dsh-agentmemory-plugin'
+      config:
+        url: 'http://100.120.120.160:3111'
+        # Credential REFERENCE only; the value lives in E:\dsh-home\.credentials.yaml
+        # and is resolved per request through ctx.credentials.resolve().
+        secretEnv: AGENTMEMORY_SECRET
+        contextMaxChars: 64000
+        recall:
+          enabled: true
+          limit: 5
+          maxChars: 4000
+          fetchTimeoutMs: 1200
+          queryMaxChars: 800
+          minConfidence: 0.5
+          includeLessons: false
+          tailRatio: 0.95
+          minQueryChars: 8

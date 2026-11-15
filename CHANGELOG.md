@@ -5,6 +5,87 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.12.0
+
+## English
+
+**Added**
+
+- **Settings page.** The bundle now declares a `Config` schema and ships a
+  browser half (`lib/client.js`) registering a `settings.section` tab:
+  Settings → AgentMemory 记忆. Daemon URL, credential reference, context
+  ceiling, `agentId`, and the whole `recall` block are editable live — a save
+  takes effect on the next request without restarting the plugin.
+
+**Changed**
+
+- **Secrets moved out of configuration (`secretEnv`).** Configuration now
+  carries a credential REFERENCE (the stored secret's name, resolved per
+  request through `ctx.credentials.resolve()`), never the value. Store the
+  secret once via the credentials seam (`E:\dsh-home\.credentials.yaml`),
+  then rotate it without touching any config file or restarting.
+  Precedence: `secretEnv` (credentials) > `secret` (inline, legacy) >
+  `secretFile` (legacy) > env/file auto-detect. The legacy `secret` and
+  `secretFile` fields are deliberately NOT declared in the schema, so the
+  settings form never displays them and a form save preserves them in the
+  patch.
+- Config fields resolved by the schema arrive as live volatile references;
+  every read site (`contextMaxChars`, `agentId`, `recall.*`) unwraps them on
+  read. Hand-written plain values keep working.
+- **The package is a bundle.** `cordis.patch.yml` plus `dsh.bundle.patch` let
+  it be installed, enabled and listed as a profile bundle; its row no longer
+  has to sit in the home-level patch.
+
+**Fixed**
+
+- **The settings tab never appeared.** The browser half ran before
+  `ui-settings` registered `configForms`, and the guarded client context
+  rejects `ctx.slots` without an `inject` declaration, so the tab was dropped
+  silently. It now declares `inject: ['slots']`, polls
+  `ctx.get('configForms')`, and accepts both loader-row id spellings.
+- **Every daemon request answered 401.** `resolveSecret` captured
+  `ctx.get('credentials')` at apply time; when the row is loaded from a bundle
+  patch that service does not exist yet, so the plugin cached `undefined` and
+  sent no bearer token. The service is now resolved per request.
+- **The settings page was unstyled.** It rendered native controls with inline
+  styles and referenced a token that does not exist. It now follows the
+  Harness settings rows (`--dsw-alias-*` tokens, 14px/12px type, 36px controls,
+  row separators) so it matches the shipped sections in light and dark themes.
+
+## 中文
+
+**新增**
+
+- **配置页。** 声明 `Config` schema 并内置浏览器半边（`lib/client.js`），在
+  设置 → AgentMemory 记忆 注册独立页。Daemon 地址、密钥引用、注入上限、
+  `agentId` 与整个 `recall` 块均可实时修改——保存后下一次请求即生效，无需重启插件。
+
+**变更**
+
+- **密钥移出配置（`secretEnv`）。** 配置只携带引用（密钥的名字），运行时每次
+  请求经 `ctx.credentials.resolve()` 解析，值存凭据存储
+  （`E:\dsh-home\.credentials.yaml`）。轮换密钥免改配置、免重启。
+  优先级：`secretEnv`（凭据）> `secret`（内联，旧）> `secretFile`（旧）>
+  环境/文件自动探测。旧 `secret` / `secretFile` 键刻意不进 schema：
+  配置页不显示、保存时原样保留。
+- schema 解析出的配置字段以 live volatile 引用到达；所有读取点
+  （`contextMaxChars`、`agentId`、`recall.*`）在读取时解包。手写普通值依旧可用。
+- **包改为 bundle。** 新增 `cordis.patch.yml` 与 `dsh.bundle.patch`，可作为
+  profile bundle 被安装、启用并列入插件清单；这一行不必再挂在 home 层补丁里。
+
+**修复**
+
+- **配置页不显示。** 浏览器半边在 `ui-settings` 注册 `configForms` 之前执行，
+  且受保护的客户端 ctx 在未声明 `inject` 时拒绝访问 `ctx.slots`，页面被静默丢弃。
+  现声明 `inject: ['slots']`、轮询 `ctx.get('configForms')`，并兼容两种行 id 拼写。
+- **所有 daemon 请求返回 401。** `resolveSecret` 在 apply 时捕获
+  `ctx.get('credentials')`；从 bundle patch 加载时该服务尚未注册，插件缓存了
+  `undefined`，请求不带 bearer。现改为每次请求现场解析。
+- **配置页没有样式。** 之前是原生控件加内联样式，还引用了一个不存在的 token。
+  现改为宿主设置行布局（`--dsw-alias-*` token、14px/12px 字号、36px 控件、
+  行分隔线），明暗主题都与内置分页一致。
+
+---
 # 0.11.1
 
 ## English

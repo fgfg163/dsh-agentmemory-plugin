@@ -94,8 +94,8 @@ function decisionWith(text) {
 }
 
 /** Build the render context a leading pre-step would pass. */
-function renderContext(text, cwd = 'E:\\gem12\\DSH') {
-  return { session: { id: 's1', header: { cwd } }, turn: 1, step: 1, decision: decisionWith(text) }
+function renderContext(text, cwd = 'E:\\gem12\\DSH', turn = 1) {
+  return { session: { id: 's1', header: { cwd } }, turn, step: 1, decision: decisionWith(text) }
 }
 
 // The old standalone package exported `name = 'agentmemory-recall'` and a hard
@@ -306,6 +306,38 @@ test('a prompt under minQueryChars is not searched at all', async () => {
   const out = await harness.slots[0].render(renderContext('已重启'))
   assert.equal(out, null)
   assert.equal(fake.calls.length, 0)
+})
+
+//#endregion
+
+//#region secret forms: legacy string vs credentials getter
+
+test('a string secret rides as the bearer token', async () => {
+  const fake = daemon([{ obsId: 'm1', score: 1, text: 'hit' }])
+  const harness = makeCtx()
+  applyRecall(harness.ctx, { url: 'http://d:1', secret: 'legacy-token', fetch: fake.fetchImpl })
+  await harness.slots[0].render(renderContext('找一下上次的重启结论'))
+  assert.equal(fake.calls[0].headers.authorization, 'Bearer legacy-token')
+})
+
+test('a getter secret is resolved per request', async () => {
+  const fake = daemon([{ obsId: 'm1', score: 1, text: 'hit' }])
+  const harness = makeCtx()
+  let stored = 'token-v1'
+  applyRecall(harness.ctx, {
+    url: 'http://d:1',
+    secret: async () => stored,
+    fetch: fake.fetchImpl,
+  })
+  await harness.slots[0].render(renderContext('找一下上次的重启结论'))
+  // Two hops per render; both rode token-v1.
+  assert.equal(fake.calls[0].headers.authorization, 'Bearer token-v1')
+  assert.equal(fake.calls[1].headers.authorization, 'Bearer token-v1')
+  // Rotation without a restart: the next render's hops see the new value.
+  stored = 'token-v2'
+  await harness.slots[0].render(renderContext('再看一下调参的事', 'E:\\gem12\\DSH', 2))
+  assert.equal(fake.calls[2].headers.authorization, 'Bearer token-v2')
+  assert.equal(fake.calls[3].headers.authorization, 'Bearer token-v2')
 })
 
 //#endregion

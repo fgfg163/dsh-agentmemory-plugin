@@ -152,14 +152,40 @@ jobs:
         run: |
           set -euo pipefail
           ver=$(node -p "require('./package.json').version")
-          echo "waiting for $ver to appear on the registry"
-          for i in $(seq 1 12); do
-            if npm view "@fgfg163/dsh-agentmemory-plugin@$ver" version > /dev/null 2>&1; then
-              echo "confirmed: $ver is live"
-              npm view "@fgfg163/dsh-agentmemory-plugin@$ver" version dist.tarball dist.integrity
+          pkg='@fgfg163/dsh-agentmemory-plugin'
+
+          # The registry applied 0.10.2 roughly 90s after the run started, so a
+          # 60s window was too short and turned a successful publish into a red
+          # run. Allow 5 minutes, and poll the registry HTTP API directly rather
+          # than `npm view`, which serves from its own cache and can therefore
+          # report "missing" long after the version is live. The `?t=` parameter
+          # keeps the CDN from answering with a stale packument.
+          #
+          # The body is read with curl and parsed from stdin, not handed to node
+          # via a temp path: on Git Bash for Windows `/tmp` resolves differently
+          # for bash and for node, and that mismatch is invisible until it fails.
+          echo "waiting for $ver to appear on the registry (up to 5 min)"
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              "https://registry.npmjs.org/${pkg//\//%2f}/$ver?t=$(date +%s)" || true)
+            if [ "$code" = "200" ]; then
+              echo "confirmed: $ver is live (attempt $i)"
+              curl -s "https://registry.npmjs.org/${pkg//\//%2f}/$ver?t=$(date +%s)" | node -e "
+                let s = '';
+                process.stdin.on('data', c => s += c).on('end', () => {
+                  const d = JSON.parse(s);
+                  console.log('  version     :', d.version);
+                  console.log('  tarball     :', d.dist.tarball);
+                  console.log('  shasum      :', d.dist.shasum);
+                  console.log('  integrity   :', d.dist.integrity);
+                  console.log('  attestations:', d.dist.attestations ? 'present' : 'MISSING');
+                  if (!d.dist.attestations) process.exitCode = 1;
+                });
+              "
               exit 0
             fi
+            echo "  attempt $i/60: HTTP $code, retrying in 5s"
             sleep 5
           done
-          echo "::error::$ver did not show up on the registry within 60s"
+          echo "::error::$ver did not show up on the registry within 5 min"
           exit 1

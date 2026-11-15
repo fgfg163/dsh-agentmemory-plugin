@@ -1,6 +1,6 @@
 {
   "name": "@fgfg163/dsh-agentmemory-plugin",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "DeepSeek Harness native integration for AgentMemory: captures session events, injects per-session memory, and recalls relevant memories per turn. Community fork of the DSH integration shipped inside @agentmemory/agentmemory, with two local fixes applied and the former dsh-agentmemory-recall plugin merged in. Versioned independently of upstream.",
   "type": "module",
   "main": "./lib/index.js",
@@ -11,7 +11,7 @@
   "files": [
     "lib",
     "scripts",
-    "WHATS-NEW-0.11.md",
+    "CHANGELOG.md",
     "README.md",
     "README_CN.md",
     "LICENSE",

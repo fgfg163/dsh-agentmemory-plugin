@@ -1,16 +1,146 @@
+# Changelog
+
+All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
+`@fgfg163/dsh-agentmemory-plugin` 的版本变更记录。每个版本内先英文后中文。
+
+---
+
+# 0.11.1
+
+## English
+
+`@fgfg163/dsh-agentmemory-plugin` 0.11.1.
+
+**Added**
+
+- **`agentId` config option.** Precedence: `config.agentId` > `AGENTMEMORY_AGENT_ID` > `owner`.
+  Harnesses sharing one daemon should set the same value on every machine.
+
+**Changed**
+
+- `agentId` is no longer hardcoded. Was `"dsh"`, now read from config.
+- The `@fgfg163/dsh-prompt-slot` install command is now shown in the install steps.
+  Recall needs it, but it is an optional peer, so skipping it fails silently.
+
+**Fixed**
+
+- **One person split into two agent ids.** The daemon filters `agentId` hard, so rows
+  written as `dsh` and rows written as `owner` cannot see each other.
+- A blank or whitespace-only `agentId` no longer blanks the value; it falls through to
+  the next level.
+
+**Notes**
+
+- This is a write-side change: restart the host for it to take effect.
+- Rows already stored under the old id are not migrated.
+
+## 简体中文
+
+**新增**
+
+- **`agentId` 配置项。** 优先级：`config.agentId` > `AGENTMEMORY_AGENT_ID` > `owner`。
+  多 harness 共享一个 daemon 时，每台配成同一个值。
+
+**修改**
+
+- `agentId` 不再硬编码。原先是 `"dsh"`，改为读配置。
+- `@fgfg163/dsh-prompt-slot` 的安装命令写进了安装步骤。召回需要它，但它是可选 peer，
+  漏装只会静默失效。
+
+**修复**
+
+- **同一个人被拆成两个 agentId。** daemon 对 `agentId` 是硬过滤，写成 `dsh` 的行和
+  写成 `owner` 的行互相看不见。
+- 空串和纯空白的 `agentId` 不再把值清空，会继续往下一级取。
+
+**注意**
+
+- 改的是写入侧，需要重启宿主才生效。
+- 已在旧 id 下落库的行不会迁移。
+
+---
+
 # 0.11.0
+
+## English
+
+**`dsh-agentmemory-recall` is merged into this package.** Recall and capture are now two
+halves of one plugin, hitting one daemon and reading one url + secret.
+
+**Why merge**
+
+- Two packages meant two `url` / `secret` configs: change one, change the other, and they
+  drift.
+- `dsh-agentmemory-recall` depended on `file:../../plugins/...`, which one unrelated plugin
+  install deleted on 2026-11-06. After merging there is no second local dependency for
+  pnpm to sweep away.
+- The split was arbitrary: one half wrote, one half read, both talking to agentmemory.
+
+**Changed**
+
+- New `lib/recall.js` (the 389-line implementation from `dsh-agentmemory-recall@1.0.0`,
+  logic unchanged). Two-hop `/smart-search`, `targetLayer: 'memory'`, no `project` /
+  `agentId`, `request` channel only — behaviour identical to before the merge.
+- Config keys moved under `config.recall`: `enabled` / `limit` / `maxChars` /
+  `fetchTimeoutMs` / `queryMaxChars` / `minQueryChars` / `minConfidence` / `tailRatio` /
+  `includeLessons`. `url` and `secret` are still resolved once at the top level.
+- **How the dependency is wired matters.** Recall gets the slot service through
+  `ctx.inject(['promptInject'])`, not a module-level `inject`. The latter would keep the
+  *entire* plugin — capture included — inactive in a profile without
+  `@fgfg163/dsh-prompt-slot`. Verified against a real Cordis kernel: with the slot plugin
+  absent, `POST /session/start` still fires.
+- `peerDependencies` gains the optional `@fgfg163/dsh-prompt-slot`
+  (`peerDependenciesMeta.optional`).
+- New tests: `test/recall.test.js` (18 cases, ported and adapted to the optional
+  dependency), `test/optional-dep.probe.mjs`, `test/integration-real.mjs` (real Cordis,
+  both plugins).
+- The plugin name `name = "agentmemory"` is **unchanged**: `agentmemory connect`
+  identifies its own loader row by id + name, so renaming it would make it append a
+  duplicate row.
+
+**Upgrading**
+
+- Delete the old patch row (`agentmemory-recall`) and move its config under the main row's
+  `recall:`. Leaving it does not error, but that config no longer takes effect — the
+  plugin it belonged to is gone.
+- `lib/` gains a file; `files` already includes the whole directory, so the package
+  manifest needs no change.
+
+**How recall behaves**
+
+- **Two-hop search.** Hop one asks the daemon for ranked candidates, hop two expands them
+  into text. Both go to `/smart-search`.
+- **Conclusions only.** The query is scoped to `targetLayer: 'memory'`, so raw tool traffic
+  and session observations do not crowd out remembered conclusions.
+- **`request` channel only.** The recalled block is woven into the outbound provider
+  request and never written to the session log.
+- **No machine filter.** `project` and `agentId` are deliberately not sent, so one daemon
+  shared by several machines stops each from seeing only its own slice.
+- **The query is your message.** Taken from the human prompt, filtered by
+  `source.kind === 'user'`, so plugin-injected text is never searched.
+
+**Good to know**
+
+- **Short prompts are not searched.** `minQueryChars` defaults to 8, so "ok" or "restarted"
+  never trigger recall.
+- **A missing slot plugin is silent.** You lose per-turn recall and keep capture; nothing
+  errors.
+- **An unreachable daemon is silent too.** Recall degrades to "no recall this turn" and
+  logs a warning.
+
+## 简体中文
 
 **把 `dsh-agentmemory-recall` 合并进本包。** 召回与 capture 现在是同一个插件的两半，
 打同一个 daemon、读同一份 url + secret。
 
-## 为什么合并
+**为什么合并**
 
 - 两个包配置两个 `url` / `secret`，改一处要改两处，且两边容易漂。
 - `dsh-agentmemory-recall` 走的是 `file:../../plugins/...` 依赖，2026-11-06 被一次
   无关插件的安装连带删掉过。合并后不再有第二条会被 pnpm 清理的本地依赖。
 - 职责本来就是同一件事：一个负责写、一个负责读，都对着 agentmemory。
 
-## 改动
+**改动**
 
 - 新增 `lib/recall.js`（原 `dsh-agentmemory-recall@1.0.0` 的 389 行实现，逻辑未改）。
   两跳 `/smart-search`、`targetLayer: 'memory'`、不传 `project` / `agentId`、
@@ -28,13 +158,49 @@
 - 插件名 `name = "agentmemory"` **未改**：`agentmemory connect` 靠 loader 行的 id + name
   双重识别自己那行，改了会被追加一条重复行。
 
-## 升级注意
+**升级注意**
 
 - 旧的两条 patch 行（`agentmemory-recall`）要删掉，配置并到主包行的 `recall:` 下；
   留着不会报错，但那份配置不再生效（那条插件已经不存在）。
 - 本版本起 `lib/` 多一个文件，`files` 已包含整个 `lib`，无需改包清单。
 
+**召回的行为方式**
+
+- **两跳检索。** 第一跳向 daemon 要候选排名，第二跳把它们展开成正文。两跳都打
+  `/smart-search`。
+- **只要结论。** 查询限定 `targetLayer: 'memory'`，避免原始工具流量和会话流水挤掉
+  已沉淀的结论。
+- **只走 `request` 通道。** 召回块织进出站请求，**不写会话日志**——所以没有召回时
+  会话语义与之前完全一致。
+- **不按机器过滤。** 故意不传 `project` 和 `agentId`，避免多机共用一个 daemon 时
+  各自只看自己那一份。
+- **查询词是你的发言。** 取自人类提问，按 `source.kind === 'user'` 过滤，插件注入的
+  文本永远不会被检索。
+
+**注意**
+
+- **短提问不检索。** `minQueryChars` 默认 8，「好」「重启了」不会触发召回——
+  这类话没有可检索的意图。
+- **缺插槽插件是静默的。** 只是没有每轮召回，采集照常，不报错。
+- **daemon 连不上同样静默。** 召回降级成「本轮不召回」并打 warning。
+
+---
+
 # 0.10.2
+
+## English
+
+First release published to npm by GitHub Release, used to verify Trusted Publishing
+(OIDC) end to end.
+
+Functionally identical to 0.10.0; `lib/index.js` is byte-for-byte unchanged
+(SHA256 `5347F36F…`), the same as 0.10.0 and 0.10.1. The only substantive difference in
+the tarball is the version string.
+
+0.10.1 was never published to npm — it only raised the version so the workflow had an
+unclaimed number to try. The actual publish used 0.10.2.
+
+## 简体中文
 
 首次通过 GitHub Release 自动发布到 npm 的版本，用来验证 Trusted Publishing
 （OIDC）端到端可用。
@@ -45,7 +211,24 @@
 0.10.1 从未发布到 npm——它只是把版本号抬起来，让 workflow 有一个尚未被占用的
 版本可以尝试，实际发布用 0.10.2 完成。
 
+---
+
 # 0.10.1
+
+## English
+
+Used to validate the GitHub Actions OIDC publish path (not actually published).
+Functionally identical to 0.10.0; `lib/index.js` is byte-for-byte unchanged
+(SHA256 `5347F36F…`).
+
+- New `.gitattributes` pins LF for workflow and shell files, so a Windows checkout with
+  `core.autocrlf=true` cannot hand CRLF to a Linux runner and fail with
+  `\r: command not found`.
+- The workflow checks the registry for the current version before publishing and fails
+  immediately naming that version, instead of letting npm reject it after packing (that
+  error looks like an auth problem).
+
+## 简体中文
 
 用于验证 GitHub Actions 的 OIDC 发布链路（未实际发布）。功能与 0.10.0 相同，
 `lib/index.js` 逐字节未变（SHA256 `5347F36F…`）。
@@ -56,11 +239,47 @@
 - workflow 在发布前先查 registry 上是否已有当前版本，有则立刻失败并指出是哪个
   版本，而不是等到打包完才由 npm 拒绝（那种报错看起来像鉴权问题）。
 
+---
+
 # 0.10.0
+
+## English
+
+First release, based on `@agentmemory/agentmemory@0.9.33`'s
+`dist/integrations/dsh.mjs`.
+
+**Version numbering**
+
+This package uses its **own version sequence**, not upstream's. The first release is
+`0.10.0` rather than `0.9.33` because:
+
+- `0.9.33-1` (patch generation as a prerelease suffix) is treated as a prerelease by npm:
+  `npm publish` fails without `--tag`, and `^0.9.33` style ranges silently fail to match.
+- `0.9.33.1` (four segments) is not semver; npm normalises it to `0.9.3-3.1`, which sorts
+  *below* `0.9.33` and is still a prerelease.
+- `0.9.34` will eventually collide with upstream when the two are synced.
+
+The upstream baseline is recorded here and in the commit message.
+
+**Changed**
+
+- **2026-11-02** Allow a remote plain-HTTP daemon to carry a bearer secret (upstream
+  rejects every non-loopback `http://`).
+- **2026-11-10** Injected memory gets its own character ceiling `contextMaxChars`
+  (default 64000) instead of reusing the 8000 capture cap. Fixes memory being silently
+  truncated mid-sentence once the pinned slots exceeded 8000.
+- **2026-11-14** Remove a `sourceMappingURL` trailer pointing at a map this package does
+  not ship.
+
+**Note**
+
+The capture path (tool input/output) still caps at upstream's 8000, unchanged.
+
+## 简体中文
 
 首个发布。基于 `@agentmemory/agentmemory@0.9.33` 的 `dist/integrations/dsh.mjs`。
 
-## 版本号约定
+**版本号约定**
 
 本包使用**独立版本序列**，不跟上游对齐。首个发布是 `0.10.0` 而非 `0.9.33`，原因是：
 
@@ -70,12 +289,12 @@
 
 上游基线版本记录在这里和 commit message 里。
 
-## 改动
+**改动**
 
 - **2026-11-02** 允许远程明文 HTTP daemon 携带 bearer secret（上游会拒绝所有非回环 `http://`）。
 - **2026-11-10** 注入的记忆使用独立的字符上限 `contextMaxChars`（默认 64000），不再复用 capture 输出那套 8000 上限。修复 pinned 槽位超长时记忆被静默截断在半句的问题。
 - **2026-11-14** 移除指向未随包分发的 `dsh.mjs.map` 的 `sourceMappingURL` 尾注。
 
-## 说明
+**说明**
 
 capture 路径（工具输入输出）的上限未改动，仍是上游的 8000。

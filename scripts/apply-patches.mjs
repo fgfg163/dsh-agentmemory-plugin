@@ -30,7 +30,7 @@
  *   - asserts an EXACT expected match count for every anchor
  *   - throws on any mismatch, exiting non-zero
  *
- * Verified out: after a successful run, grep for the two PATCHED markers.
+ * Verified out: after a successful run, grep for the three PATCHED markers.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -38,12 +38,14 @@ import { resolve } from 'node:path'
 
 export const MARKER_REMOTE_HTTP = 'PATCHED 2026-11-02'
 export const MARKER_CONTEXT_CAP = 'PATCHED 2026-11-10'
+export const MARKER_AGENT_ID = 'PATCHED 2026-11-15'
 
 /** Expected occurrences of each anchor in pristine upstream 0.9.33. */
 const EXPECT = {
   urlGuard: 1,
   safeSignature: 1,
   contextCallSite: 2,
+  agentIdLiteral: 1,
 }
 
 class PatchError extends Error {}
@@ -139,6 +141,55 @@ export function stripSourceMapTrailer(text) {
 }
 
 /**
+ * Patch 4 — make `agentId` configurable instead of a hardcoded `"dsh"`.
+ *
+ * The daemon treats `agentId` as a hard filter: a row whose id does not match
+ * the filter is dropped, not merely ranked lower. Upstream writes `"dsh"`, so a
+ * store that already holds rows under another id (the daemon's own `AGENT_ID`,
+ * classically `owner`) is split in two the moment this plugin starts writing.
+ *
+ * For harnesses that intentionally share one memory store, every writer must use
+ * the same id — that is why this is a config knob and not a fixed constant.
+ * Default stays `"owner"` to match the daemon fallback.
+ */
+export function patchAgentId(text) {
+  const helper = [
+    `// ${MARKER_AGENT_ID}: the daemon treats agentId as a hard filter`,
+    '// (`record.agentId !== filterAgentId` drops the row outright), so harnesses meant',
+    '// to share one memory store must write the SAME id. Upstream hardcodes "dsh",',
+    '// which splits one person across two ids the moment historic rows say "owner".',
+    '// Default "owner" matches the daemon\'s own AGENT_ID fallback; override it when a',
+    '// shared store already contains rows under a different id.',
+    'function resolveAgentId(config) {',
+    '\tconst pick = (value) => {',
+    '\t\tconst trimmed = typeof value === "string" ? value.trim() : "";',
+    '\t\treturn trimmed || void 0;',
+    '\t};',
+    '\tconst raw = pick(config && config.agentId) ?? pick(process.env.AGENTMEMORY_AGENT_ID);',
+    '\treturn raw || "owner";',
+    '}',
+  ].join('\n')
+
+  // Anchor: the hardcoded literal upstream ships inside /session/start.
+  const anchor = 'agentId: "dsh"'
+  const replaced = replaceExactly(text, anchor, 'agentId: resolveAgentId(config)',
+    EXPECT.agentIdLiteral, 'patch 4 (agentId)')
+
+  // Put the helper next to contextMaxChars() so both config readers live together.
+  const m = replaced.match(/function safe\(value, limit = (?:8e3|8000)\) \{/)
+  if (!m) {
+    throw new PatchError(
+      'patch 4 (agentId): could not find the safe() signature to anchor the helper.\n' +
+        'Expected `function safe(value, limit = 8e3) {` or `... = 8000) {`.',
+    )
+  }
+  if (replaced.split(m[0]).length - 1 !== 1) {
+    throw new PatchError('patch 4 (agentId): safe() signature appears more than once.')
+  }
+  return replaced.replace(m[0], `${helper}\n${m[0]}`)
+}
+
+/**
  * Apply all patches to `source` and return the result.
  * Throws `PatchError` if any anchor drifted.
  */
@@ -146,6 +197,7 @@ export function applyAll(source) {
   let text = source
   text = patchRemoteHttp(text)
   text = patchContextCap(text)
+  text = patchAgentId(text)
   text = stripSourceMapTrailer(text)
   verify(text)
   return text
@@ -158,8 +210,12 @@ export function verify(text) {
   const checks = [
     [text.includes(MARKER_REMOTE_HTTP), `marker "${MARKER_REMOTE_HTTP}" present`],
     [text.includes(MARKER_CONTEXT_CAP), `marker "${MARKER_CONTEXT_CAP}" present`],
+    [text.includes(MARKER_AGENT_ID), `marker "${MARKER_AGENT_ID}" present`],
     [(text.match(/contextMaxChars\(config\)\)/g) || []).length === 2, 'both injection call sites patched'],
     [text.includes('function contextMaxChars(config)'), 'contextMaxChars helper defined'],
+    [text.includes('function resolveAgentId(config)'), 'resolveAgentId helper defined'],
+    [text.includes('agentId: resolveAgentId(config)'), 'agentId is configurable, not hardcoded'],
+    [!text.includes('agentId: "dsh"'), 'hardcoded agentId "dsh" gone'],
     [!text.includes('!isLoopbackUrl(url)) throw'), 'remote-http guard clause removed'],
     [!/sourceMappingURL=dsh\.mjs\.map/.test(text), 'sourceMappingURL trailer removed'],
     [text.includes('export { apply, name }'), 'plugin exports intact'],
@@ -183,7 +239,7 @@ if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` || proc
     writeFileSync(resolve(output), out, 'utf8')
     console.log(`[ok] patched ${resolve(input)} -> ${resolve(output)}`)
     console.log(`[ok] ${src.length} -> ${out.length} chars (+${out.length - src.length})`)
-    console.log('[next] grep the output for the two PATCHED markers before publishing')
+    console.log('[next] grep the output for the three PATCHED markers before publishing')
   } catch (error) {
     if (error instanceof PatchError) {
       console.error(`[FAIL] ${error.message}`)

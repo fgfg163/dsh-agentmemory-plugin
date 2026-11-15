@@ -8,7 +8,7 @@
 
 > ⚠️ **非官方**。不是 agentmemory 项目的产物，未经上游审核或背书。
 
-> **0.11.0 新增：每轮召回。** 每一轮都去记忆库检索，命中的记忆随出站请求一起带给模型。见 **[WHATS-NEW-0.11.md](WHATS-NEW-0.11.md)**（中英双语同一文件）。
+> **0.11.0 新增：每轮召回。** 每一轮都去记忆库检索，命中的记忆随出站请求一起带给模型。见 **[CHANGELOG.md](CHANGELOG.md)**（中英双语同一文件）。
 
 ## 这是什么 / 这不是什么
 
@@ -85,7 +85,12 @@ npm i -g @fgfg163/dsh-agentmemory-plugin
 ```bash
 cd "$DSH_HOME/profiles/<profile>"
 pnpm add @fgfg163/dsh-agentmemory-plugin
+pnpm add @fgfg163/dsh-prompt-slot   # 每轮召回必需
 ```
+
+**`@fgfg163/dsh-prompt-slot` 是召回必需的。** 它被声明为可选 peer，npm/pnpm 不会
+自动装。漏装时插件照常加载、采集照常工作，但每轮召回会静默地什么都不做 ——
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ### 挂进组合
 
@@ -107,10 +112,40 @@ pnpm add @fgfg163/dsh-agentmemory-plugin
 | `url` | string | `http://localhost:3111` | daemon 地址。**远程 http 只有本包支持** |
 | `secret` | string | 读 `~/.agentmemory/secret` | bearer token。远程 daemon 必填 |
 | `contextMaxChars` | number | `64000` | 注入记忆的字符上限（本包新增） |
+| `agentId` | string | `owner` | 写入 daemon 的身份。**多 harness 共享同一份存储时，每台都配成同一个值**（本包新增） |
 
 也可以用环境变量 `AGENTMEMORY_CONTEXT_MAX_CHARS` 覆盖，优先级：`config.contextMaxChars` > 环境变量 > 64000。
 
+`agentId` 的优先级同理：`config.agentId` > `AGENTMEMORY_AGENT_ID` > `owner`。
+
 **改完必须重启 DSH**——HMR 只重新应用 patch，不会重新加载已加载的模块。
+
+#### 多个 harness 共享同一份记忆
+
+本插件就是为「**不止一个 harness 往同一个 daemon 里写**」这种场景做的——几台 DSH、
+一个 OpenClaw 客户端，跑什么都算。
+
+daemon 把 `agentId` 当**硬过滤**：对不上的行直接丢掉，不是排到后面。所以共享一份存储
+的前提是**每个写入方都用同一个 id**：
+
+```yaml
+config:
+  url: 'http://100.120.120.160:3111'
+  secret: !!js ...
+  # 所有共享本 daemon 的机器都用同一个字符串。
+  agentId: 'owner'
+```
+
+挑你这份存储里**存量行最多的那个 id**，然后每台都照抄。上游自带的集成硬编码成 `dsh`，
+daemon 自己的兜底值是 `owner`。如果历史行是 `owner`，而新接的 harness 开始写 `dsh`，
+同一个人就悄悄变成两个身份——两半历史互相看不见。这个配置项存在的意义就是避免这件事，
+也是本包默认取 daemon 那个值、而不取上游那个值的原因。
+
+两点要知道：
+
+- **召回不受这个设置影响。** 召回那半边故意不传 `agentId`（理由见 `lib/recall.js` 的
+  "Scope" 注释），所以它检索的是整份共享存储。`agentId` 只决定**写入**怎么打标。
+- **这是写入侧的设置。** 改它不会迁移已经按旧 id 落库的行，旧行原地不动。
 
 > `name:` 外面那对单引号别省。scoped 包名带 `/`，YAML 裸写会被解析出歧义，必须引起来。
 

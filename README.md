@@ -8,7 +8,7 @@ This is a **community fork** of the DSH integration bundled inside [@agentmemory
 
 > ⚠️ **Unofficial.** Not a product of the agentmemory project, and not reviewed or endorsed upstream.
 
-> **New in 0.11.0:** per-turn recall. Every turn is searched against the memory store, and matching memories ride along with the outbound request. See **[WHATS-NEW-0.11.md](WHATS-NEW-0.11.md)** (English and 简体中文 in one file).
+> **New in 0.11.0:** per-turn recall. Every turn is searched against the memory store, and matching memories ride along with the outbound request. See **[CHANGELOG.md](CHANGELOG.md)** (English and 简体中文 in one file).
 
 ## What this is / what this is not
 
@@ -85,7 +85,13 @@ Or add it to your profile's dependencies (recommended, so it is managed alongsid
 ```bash
 cd "$DSH_HOME/profiles/<profile>"
 pnpm add @fgfg163/dsh-agentmemory-plugin
+pnpm add @fgfg163/dsh-prompt-slot   # required for per-turn recall
 ```
+
+**`@fgfg163/dsh-prompt-slot` is needed for recall.** It is declared as an optional
+peer, so npm/pnpm will not install it for you. Skip it and the plugin still loads,
+capture still works, and per-turn recall silently does nothing — see
+[CHANGELOG.md](CHANGELOG.md).
 
 ### Mount it into the composition
 
@@ -107,12 +113,48 @@ Add this to `$DSH_HOME/cordis.patch.yml` (global) or `profiles/<profile>/cordis.
 | `url` | string | `http://localhost:3111` | Daemon address. **Remote http only works with this package** |
 | `secret` | string | read from `~/.agentmemory/secret` | Bearer token. Required for a remote daemon |
 | `contextMaxChars` | number | `64000` | Character cap for injected memory (new in this package) |
+| `agentId` | string | `owner` | Identity written to the daemon. **Set the same value on every harness that shares one store** (new in this package) |
 
 You can also override it with the `AGENTMEMORY_CONTEXT_MAX_CHARS` environment variable. Precedence: `config.contextMaxChars` > environment variable > 64000.
+
+`agentId` follows the same shape: `config.agentId` > `AGENTMEMORY_AGENT_ID` > `owner`.
 
 **You must restart DSH after changing this** — HMR only re-applies patches; it does not re-import already-loaded modules.
 
 > Keep the single quotes around `name:`. The scoped package name contains a `/`, which YAML parses ambiguously when written bare.
+
+#### Sharing one memory store across several harnesses
+
+This plugin is built for a setup where **more than one harness writes into the
+same daemon** — several DSH installs, an OpenClaw client, whatever you run.
+
+The daemon treats `agentId` as a **hard filter**: a row whose id does not match
+the one being queried is dropped outright, not merely ranked lower. So a shared
+store only works if every writer agrees on the id:
+
+```yaml
+config:
+  url: 'http://100.120.120.160:3111'
+  secret: !!js ...
+  # Same string on every machine that shares this daemon.
+  agentId: 'owner'
+```
+
+Pick the id that your store already contains the most rows under, and use it
+everywhere. Upstream's bundled integration hardcodes `dsh`; the daemon's own
+fallback is `owner`. If your historic rows say `owner` and a new harness starts
+writing `dsh`, the same person silently becomes two identities — each half of
+the history invisible to the other. That is the failure this knob exists to
+prevent, and it is why the default here is the daemon's value rather than
+upstream's.
+
+Two consequences worth knowing:
+
+- **Recall is unaffected by this setting.** The recall half deliberately sends no
+  `agentId` (see the "Scope" comment in `lib/recall.js`) so it searches the whole
+  shared store. `agentId` only decides how *writes* are tagged.
+- **It is a write-side setting.** Changing it does not migrate rows already
+  stored under the old id; they stay where they are.
 
 #### About `id: fgfg163-agentmemory-plugin`
 

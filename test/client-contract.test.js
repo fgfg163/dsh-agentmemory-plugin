@@ -173,3 +173,16 @@ test('every helper the page calls is defined in the bundle', () => {
   const missing = helpers.filter((name) => !declared.has(name))
   assert.deepEqual(missing, [], `helpers called but never declared: ${missing.join(', ')}`)
 })
+
+test('a failed store read still leaves the loading state', () => {
+  // The page renders a "connecting" placeholder while `remote` is null. The
+  // error path used to `return` without setting it, so any unreachable route —
+  // including a plain 401 in a browser without a session — left the panel
+  // spinning forever with no visible reason.
+  const load = source.slice(source.indexOf('const loadWorkspace'), source.indexOf('const saveOverride'))
+  const errorBranch = load.slice(load.indexOf('setWsState({ phase: \'error\' })'))
+  const branchEnd = errorBranch.indexOf('return')
+  const inside = errorBranch.slice(0, branchEnd)
+  assert.ok(inside.includes('setRemote('), 'the error branch must set a value so the panel renders')
+  assert.ok(source.includes('storeUnreachable'), 'and the page must say the values are defaults')
+})

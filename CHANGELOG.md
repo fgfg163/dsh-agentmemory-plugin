@@ -5,6 +5,119 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.13.0
+
+## English
+
+**Added**
+
+- **Per-workspace configuration.** A `.dsh-agentmemory.yml` in a session's
+  working directory now overrides the global config for that directory only.
+  DSH's own layers are all profile-scoped, so before this every session on a
+  machine shared one daemon, one `agentId` and one recall budget regardless of
+  the project it was working in. Discovery walks upward from the cwd and stops
+  at the directory holding `.git`; closer files win per key, and unnamed keys
+  fall back to the global value.
+- `workspace` config block: `enabled`, `fileName`, `maxDepth`,
+  `allowEndpointOverride`. All four are editable from the settings page.
+- `lib/workspace-config.js` — discovery, a deliberately small YAML-subset
+  parser, per-file caching keyed by mtime+size, and validation that reports
+  every rejected key instead of dropping it silently.
+- **Six file actions in the settings page** — save to global / save to
+  workspace / read global / read workspace / clear workspace / reset defaults,
+  plus a target-directory box. The Host half serves them from
+  `lib/workspace-route.js` through `connection.fetch.register()` at
+  `/api/dsh-agentmemory/workspace`, so the official `/api` carrier
+  authenticates the browser and the plugin never touches cookies.
+  `test/workspace-integration.test.js` drives the real `apply()` end to end.
+
+**Changed**
+
+- The capture half resolves config **per session** (`state.config`) instead of
+  once at apply time, so `agentId`, `contextMaxChars` and the daemon URL can
+  differ between two concurrently running sessions.
+- The recall half resolves its view inside `render()` via a `resolve(cwd)` hook,
+  which is the only place the session exists. `promptInject` fixes a slot's
+  `maxChars` at registration, so the slot now registers at a wide ceiling
+  (64k) and the per-session `recall.maxChars` is enforced in `render()`.
+- The spool drain timer drains every daemon target a workspace has selected,
+  not just the profile one.
+
+**Fixed**
+
+- **The edit route answered 401 to everything.** The first build registered it
+  on `webServer` outside `/api` and called `connection.admit()` itself. Only the
+  `/api` carrier mints the browser cookie that `admit` verifies, so every
+  request was refused — and the same code also rejected requests when
+  `connection` happened to load after `webServer`. Now the route goes through
+  `connection.fetch.register()` (the official plugin entry point, which also
+  validates that the path is under `/api`), with a Host/Origin-checked
+  `webServer` fallback on a separate path for compositions without it.
+- **Volatile config leaves were written back as `{}`.** `read-global` returned
+  `{"limit":{}}` and `write-global` persisted the same into
+  `cordis.patch.yml`, because schema-resolved fields are `{ get }` references.
+  Both paths now go through an unwrapped view.
+
+**Security**
+
+- **`url` and `secretEnv` are refused from a workspace file by default.** A
+  repository is untrusted input; letting a cloned project set the daemon would
+  be enough to redirect every captured prompt. Opt in per deployment with
+  `workspace.allowEndpointOverride: true`.
+- The workspace parser rejects flow collections, anchors, aliases, block
+  scalars, `!!` tags and multiple documents **with a line number**. A `!!js`
+  scalar checked into a repository is never evaluated.
+
+## 简体中文
+
+**新增**
+
+- **按工作空间配置。** 会话工作目录下的 `.dsh-agentmemory.yml` 现在只对那个目录
+  覆盖全局配置。DSH 自身的配置层全部属于 profile，在此之前一台机器上所有会话
+  不论在哪个项目里都共用一个 daemon、一个 `agentId`、一套召回预算。查找从工作
+  目录向上，遇到含 `.git` 的目录即停；越近的文件按键优先，没写的键回落到全局值。
+- `workspace` 配置块：`enabled`、`fileName`、`maxDepth`、
+  `allowEndpointOverride`。四项都能在配置页里改。
+- `lib/workspace-config.js`——目录查找、刻意做小的 YAML 子集解析器、按
+  mtime+size 缓存、以及把每个被拒绝的键都报出来的校验（不静默丢弃）。
+- **设置页六个文件操作**——保存到全局 / 保存到工作空间 / 从全局读取 /
+  从工作空间读取 / 清除工作空间设置 / 恢复默认，外加一个目标目录框。
+  Host 半边在 `lib/workspace-route.js` 里，经 `connection.fetch.register()`
+  挂在 `/api/dsh-agentmemory/workspace`，由官方 `/api` 载体鉴权，插件自身
+  完全不碰 cookie。`test/workspace-integration.test.js` 用真实 `apply()`
+  端到端驱动。
+
+**变更**
+
+- 采集半边改为**按会话**解析配置（`state.config`），不再在 apply 时解析一次，
+  因此同时运行的两个会话可以有不同的 `agentId`、`contextMaxChars` 和 daemon 地址。
+- 召回半边在 `render()` 内通过 `resolve(cwd)` 钩子解析自己的视图——那是会话唯一
+  存在的地方。`promptInject` 的 `maxChars` 在注册时固定，所以插槽改用一个宽上限
+  （64k）注册，按会话的 `recall.maxChars` 在 `render()` 里执行。
+- 暂存区排空定时器会排空工作空间选过的每一个 daemon 目标，而不只是 profile 那个。
+
+**修复**
+
+- **编辑路由对一切请求都回 401。** 第一版把它注册在 `/api` 之外的 `webServer`
+  上并自己调 `connection.admit()`。但只有 `/api` 载体才会签发 `admit` 所校验的
+  浏览器 cookie，于是每个请求都被拒；当 `connection` 晚于 `webServer` 加载时，
+  同一段代码同样会拒。现改为走 `connection.fetch.register()`（官方插件入口，
+  它本身会校验路径必须在 `/api` 下），并为没有该服务的组合保留一条独立路径、
+  自行校验 Host/Origin 的 `webServer` 兜底。
+- **volatile 配置叶子被写回成 `{}`。** `read-global` 返回 `{"limit":{}}`，
+  `write-global` 还把同样的东西写进 `cordis.patch.yml`，原因是 schema 解析出的
+  字段是 `{ get }` 引用。两条路径现在都走解包后的视图。
+
+**安全**
+
+- **默认拒绝工作空间文件里的 `url` 与 `secretEnv`。** 仓库是不可信输入；让克隆来的
+  项目设定 daemon，就足以把本机捕获的每条对话改发到别处。需要时按部署打开
+  `workspace.allowEndpointOverride: true`。
+- 工作空间解析器拒绝流式集合、锚点、别名、块标量、`!!` 标签与多文档，且**带行号**。
+  仓库里签入的 `!!js` 标量绝不会被求值。
+
+---
+
 # 0.12.0
 
 ## English
@@ -52,7 +165,7 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
   Harness settings rows (`--dsw-alias-*` tokens, 14px/12px type, 36px controls,
   row separators) so it matches the shipped sections in light and dark themes.
 
-## 中文
+## 简体中文
 
 **新增**
 

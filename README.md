@@ -242,6 +242,65 @@ Recall is **on by default**. Configure or disable it under `recall`:
 
 This half was added in 0.11.0. It shares the daemon, URL and secret with capture, so both are configured in one place.
 
+### Per-workspace configuration (new in 0.13.0)
+
+Every DSH configuration layer belongs to a **profile**: bundle patch, `cordis.patch.yml`, home patch, `--patch`. None of them is scoped to a directory, so out of the box every session on a machine shares one `agentId`, one daemon and one recall budget — whichever project it is working in.
+
+This plugin adds the missing layer. Drop a file named `.dsh-agentmemory.yml` in a working directory and the keys it names override the global config **for sessions started in that directory only**:
+
+```yaml
+# <your-project>/.dsh-agentmemory.yml
+agentId: work
+contextMaxChars: 20000
+recall:
+  limit: 3            # a task-specific repo needs fewer stray memories
+  includeLessons: true
+  minQueryChars: 4    # short but meaningful requests ("跑测试")
+```
+
+Rules:
+
+- **Per key, not per file.** Only the keys the file names change; everything else falls back to the global config.
+- **Discovery walks upward.** Starting at the session's working directory, each parent is checked until a directory containing `.git` is reached (the project root). That root is included; nothing above it is. A monorepo can therefore override its root's settings inside one package, and a directory outside any project inherits nothing.
+- **Closer wins.** If both the project root and a subdirectory have a file, the subdirectory's values apply and the root's values fill the rest.
+- **Read once per session.** The file is resolved when the session is created; editing it mid-session takes effect on the next session.
+- **A bad file is reported, never fatal.** Wrong types and unknown keys are logged and ignored, and the global value stands.
+
+```yaml
+# global defaults live in cordis.patch.yml
+config:
+  workspace:
+    enabled: true                  # false = ignore every workspace file
+    fileName: .dsh-agentmemory.yml
+    maxDepth: 24                   # how many parents to walk
+    allowEndpointOverride: false
+```
+
+**`url` and `secretEnv` are refused by default.** A repository is untrusted input: if a cloned project could set `url`, opening it would be enough to redirect every captured prompt to someone else's server. Set `workspace.allowEndpointOverride: true` only for repositories you control end to end.
+
+The file is parsed by a deliberately small reader: nested maps of scalars. Flow collections, anchors, block scalars, multiple `!!` tags and multiple documents are **rejected with a line number** rather than interpreted — a `!!js` scalar checked into a repository must never be evaluated.
+
+#### Buttons in the settings page
+
+The bottom of Settings → AgentMemory 记忆 has six actions, so the file does not have to be edited by hand:
+
+| Button | What it does |
+|---|---|
+| 保存到全局 | Writes the form values into this profile's `cordis.patch.yml` (the global config). |
+| 保存到工作空间 | Writes them into `<dir>/.dsh-agentmemory.yml`. |
+| 从全局读取 | Loads the global values into the form. |
+| 从工作空间读取 | Loads the workspace file's values into the form. |
+| 清除工作空间设置 | Deletes that one file. Nothing else. |
+| 恢复默认 | Deletes the file and resets the keys this plugin manages in the global config. |
+
+The **目标目录** box above them picks the directory; empty means "the current working directory".
+
+These buttons need to write files from the browser, which the settings form cannot do, so the Host half registers one narrow route.
+
+**It is registered through `connection.fetch.register()` at `/api/dsh-agentmemory/workspace`.** That matters: the `/api` carrier authenticates the browser session before dispatch, so the plugin never handles cookies itself. A request without a valid session is refused with 401 before any filesystem code runs, and a cross-site `Origin` is refused with 403. (An earlier build registered the route outside `/api` and authenticated it manually; that always failed with 401, because only the `/api` carrier mints the cookie it was checking for.)
+
+Requests carry **no path**: the browser sends either a directory to read, or nothing, and the Host always resolves that to `<dir>/.dsh-agentmemory.yml`. There is no "write to this file" request, so the route cannot be steered at an arbitrary path. Values are re-serialized from validated keys — unknown keys and wrong types are dropped, and a string containing a newline is refused outright rather than written as a file that the plugin could not read back.
+
 ## Privacy
 
 The plugin POSTs **every message you send**, **every reply the model produces**, and **the input and output of every tool call** to the daemon.

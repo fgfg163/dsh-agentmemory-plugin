@@ -5,6 +5,38 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.13.1
+
+## English
+
+**Fixed**
+
+- **The settings page could spin forever.** The initial load rendered a
+  "connecting" placeholder while its data was null, and the error branch
+  returned without ever setting a value. Any failure — an unreachable route, or
+  a plain 401 from a browser with no session for this host — left the panel
+  showing "connecting" with no reason given.
+  A failed read now renders the page with built-in defaults and states so at the
+  top, because otherwise "the read failed" and "your settings are empty" look
+  identical.
+
+No other behaviour changed.
+
+## 简体中文
+
+**修复**
+
+- **配置页可能一直显示「正在连接」。** 初次加载时数据为空，页面渲染
+  「正在连接配置服务」占位；而错误分支直接 `return`，没有给数据赋值。任何失败
+  ——路由不可达，或浏览器对该宿主没有会话因此拿到 401——都会让面板停在
+  「正在连接」，不给任何原因。
+  现在读取失败时会渲染页面并显示内置默认值，同时在顶部说明这一点，否则
+  「读取失败」和「设置是空的」看起来完全一样。
+
+除此之外行为不变。
+
+---
+
 # 0.13.0
 
 ## English

@@ -242,64 +242,104 @@ Recall is **on by default**. Configure or disable it under `recall`:
 
 This half was added in 0.11.0. It shares the daemon, URL and secret with capture, so both are configured in one place.
 
-### Per-workspace configuration (new in 0.13.0)
+### Per-workspace settings (new in 0.13.0)
 
-Every DSH configuration layer belongs to a **profile**: bundle patch, `cordis.patch.yml`, home patch, `--patch`. None of them is scoped to a directory, so out of the box every session on a machine shares one `agentId`, one daemon and one recall budget — whichever project it is working in.
+DSH's own configuration layers are all **profile-scoped**: bundle patch, profile
+`cordis.patch.yml`, home patch, `--patch`. None of them varies by directory, so
+out of the box every session on a machine shares one daemon, one `agentId` and
+one recall budget — whichever project it is working in.
 
-This plugin adds the missing layer. Drop a file named `.dsh-agentmemory.yml` in a working directory and the keys it names override the global config **for sessions started in that directory only**:
+This plugin adds that layer. Settings → AgentMemory 记忆 has a **按工作区覆盖**
+block: pick a workspace from the ones DSH has registered, and the fields below it
+override the global values **for sessions started in that directory only**.
 
-```yaml
-# <your-project>/.dsh-agentmemory.yml
-agentId: work
-contextMaxChars: 20000
-recall:
-  limit: 3            # a task-specific repo needs fewer stray memories
-  includeLessons: true
-  minQueryChars: 4    # short but meaningful requests ("跑测试")
+Edits save on change — there is no Save button, here or in the global section.
+Only fields whose value differs from what was loaded are written, and clearing a
+field means "follow global" rather than "store an empty string".
+
+The picker lists **every registered workspace**, not only the ones that already
+have settings — otherwise the first override could never be created. Workspaces
+that carry settings are marked `✓已覆盖`.
+
+The **删除这个工作区的配置** button removes that one workspace's settings. The
+workspace itself, its sessions and every other workspace are untouched. To get
+the settings back, pick the workspace again and change any field: DSH keeps the
+workspace, so a new block is created on the first edit. (This only holds while
+the workspace is still in DSH's sidebar; deleting the workspace itself takes its
+settings with it.)
+
+### One settings file
+
+Everything this plugin stores lives in one document:
+
+```
+<DSH_HOME>/storages/dsh-agentmemory-workspaces.json
 ```
 
-Rules:
-
-- **Per key, not per file.** Only the keys the file names change; everything else falls back to the global config.
-- **Discovery walks upward.** Starting at the session's working directory, each parent is checked until a directory containing `.git` is reached (the project root). That root is included; nothing above it is. A monorepo can therefore override its root's settings inside one package, and a directory outside any project inherits nothing.
-- **Closer wins.** If both the project root and a subdirectory have a file, the subdirectory's values apply and the root's values fill the rest.
-- **Read once per session.** The file is resolved when the session is created; editing it mid-session takes effect on the next session.
-- **A bad file is reported, never fatal.** Wrong types and unknown keys are logged and ignored, and the global value stands.
-
-```yaml
-# global defaults live in cordis.patch.yml
-config:
-  workspace:
-    enabled: true                  # false = ignore every workspace file
-    fileName: .dsh-agentmemory.yml
-    maxDepth: 24                   # how many parents to walk
-    allowEndpointOverride: false
+```json
+{
+  "version": 1,
+  "global": {
+    "url": "http://your-daemon:3111"
+  },
+  "workspaces": {
+    "/home/you/project": {
+      "agentId": "work",
+      "recall": { "limit": 3 }
+    }
+  }
+}
 ```
 
-**`url` and `secretEnv` are refused by default.** A repository is untrusted input: if a cloned project could set `url`, opening it would be enough to redirect every captured prompt to someone else's server. Set `workspace.allowEndpointOverride: true` only for repositories you control end to end.
+- `global` holds only values that differ from the built-in defaults, so a fresh
+  install leaves a small file that shows at a glance what was customised.
+- `workspaces` is keyed by canonicalised directory path: trailing separators
+  dropped and, where the directory exists, `realpath` applied — a project reached
+  through a symlink is one workspace, not two competing blocks.
+- Writes are temp-file-then-rename, so a crash cannot leave a truncated document.
+- The workspace layer only changes the keys it names; everything else falls back
+  to `global`.
 
-The file is parsed by a deliberately small reader: nested maps of scalars. Flow collections, anchors, block scalars, multiple `!!` tags and multiple documents are **rejected with a line number** rather than interpreted — a `!!js` scalar checked into a repository must never be evaluated.
+`cordis.patch.yml` keeps just the mount row:
 
-#### Buttons in the settings page
+```yaml
+- insert:
+    - id: fgfg163-agentmemory-plugin
+      name: '@fgfg163/dsh-agentmemory-plugin'
+```
 
-The bottom of Settings → AgentMemory 记忆 has six actions, so the file does not have to be edited by hand:
+**A value left in that row still works.** Reads go store first, then the row,
+then the built-in default — so an explicit pin in YAML outranks the default while
+the page keeps working. Nothing is written back to YAML.
 
-| Button | What it does |
-|---|---|
-| 保存到全局 | Writes the form values into this profile's `cordis.patch.yml` (the global config). |
-| 保存到工作空间 | Writes them into `<dir>/.dsh-agentmemory.yml`. |
-| 从全局读取 | Loads the global values into the form. |
-| 从工作空间读取 | Loads the workspace file's values into the form. |
-| 清除工作空间设置 | Deletes that one file. Nothing else. |
-| 恢复默认 | Deletes the file and resets the keys this plugin manages in the global config. |
+**Upgrading from 0.12.0 is automatic.** On first run the values still in the
+profile row are imported into the store, so an existing install keeps its
+configured daemon URL instead of falling back to `localhost`. It runs once; the
+row is ignored afterwards.
 
-The **目标目录** box above them picks the directory; empty means "the current working directory".
+### Tuning
 
-These buttons need to write files from the browser, which the settings form cannot do, so the Host half registers one narrow route.
+Everything above is editable in 设置 → AgentMemory 记忆, and the values below are
+the built-in defaults. They are listed for reference, not because you need to
+write them anywhere:
 
-**It is registered through `connection.fetch.register()` at `/api/dsh-agentmemory/workspace`.** That matters: the `/api` carrier authenticates the browser session before dispatch, so the plugin never handles cookies itself. A request without a valid session is refused with 401 before any filesystem code runs, and a cross-site `Origin` is refused with 403. (An earlier build registered the route outside `/api` and authenticated it manually; that always failed with 401, because only the `/api` carrier mints the cookie it was checking for.)
+| Key | Default | Meaning |
+|---|---|---|
+| `url` | `''` (falls back to `AGENTMEMORY_URL`, then `localhost:3111`) | Daemon base URL |
+| `secretEnv` | `AGENTMEMORY_SECRET` | Credential **reference**; the value lives in the credentials store |
+| `contextMaxChars` | `64000` | Character ceiling for the once-per-session `/context` injection |
+| `agentId` | `owner` | id written on every captured row; must match across machines sharing one daemon |
+| `workspace.enabled` | `true` | Master switch for the per-workspace layer |
+| `recall.limit` | `5` | Results requested from the daemon per turn |
+| `recall.maxChars` | `4000` | Ceiling for the composed recall block |
+| `recall.fetchTimeoutMs` | `1200` | Per-request timeout |
+| `recall.queryMaxChars` | `800` | Query truncation |
+| `recall.minConfidence` | `0.5` | Normalized-score gate |
+| `recall.includeLessons` | `false` | Also prepend lessons |
+| `recall.tailRatio` | `0.95` | Relative tail cut inside one batch |
+| `recall.minQueryChars` | `8` | Shorter prompts skip recall |
 
-Requests carry **no path**: the browser sends either a directory to read, or nothing, and the Host always resolves that to `<dir>/.dsh-agentmemory.yml`. There is no "write to this file" request, so the route cannot be steered at an arbitrary path. Values are re-serialized from validated keys — unknown keys and wrong types are dropped, and a string containing a newline is refused outright rather than written as a file that the plugin could not read back.
+Changes take effect on the next request — the plugin is not reloaded.
 
 ## Privacy
 

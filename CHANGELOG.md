@@ -11,110 +11,152 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 **Added**
 
-- **Per-workspace configuration.** A `.dsh-agentmemory.yml` in a session's
-  working directory now overrides the global config for that directory only.
-  DSH's own layers are all profile-scoped, so before this every session on a
-  machine shared one daemon, one `agentId` and one recall budget regardless of
-  the project it was working in. Discovery walks upward from the cwd and stops
-  at the directory holding `.git`; closer files win per key, and unnamed keys
-  fall back to the global value.
-- `workspace` config block: `enabled`, `fileName`, `maxDepth`,
-  `allowEndpointOverride`. All four are editable from the settings page.
-- `lib/workspace-config.js` — discovery, a deliberately small YAML-subset
-  parser, per-file caching keyed by mtime+size, and validation that reports
-  every rejected key instead of dropping it silently.
-- **Six file actions in the settings page** — save to global / save to
-  workspace / read global / read workspace / clear workspace / reset defaults,
-  plus a target-directory box. The Host half serves them from
-  `lib/workspace-route.js` through `connection.fetch.register()` at
-  `/api/dsh-agentmemory/workspace`, so the official `/api` carrier
-  authenticates the browser and the plugin never touches cookies.
-  `test/workspace-integration.test.js` drives the real `apply()` end to end.
+- **Per-workspace settings.** DSH's own configuration layers are all
+  profile-scoped, so before this every session on a machine shared one daemon,
+  one `agentId` and one recall budget regardless of the project it was working
+  in. The settings page now has a 按工作区覆盖 block: pick a workspace from the
+  ones DSH has registered and the fields below it override the global values for
+  sessions started in that directory only. Edits save on change — no Save press.
+- **A workspace list that includes workspaces with no settings yet.** Choosing
+  from an "already customised" list would have made the first override
+  impossible to create.
+- **Delete button for one workspace's settings**, on its own row above the
+  picker. It only removes that workspace's block; the workspace, its sessions
+  and every other workspace's settings are untouched. Clearing a field already
+  means "follow global", so no separate control is needed for that.
+- `lib/workspace-store.js` — the single store: canonical path keys, atomic
+  writes, defaults, and one-time import from the profile row.
+- `lib/workspace-route.js` — the Host half of the page, served through
+  `connection.fetch.register()` at `/api/dsh-agentmemory/workspace`, so the
+  official `/api` carrier authenticates the browser and the plugin never
+  handles cookies. A Host/Origin-checked `webServer` fallback covers
+  compositions without `connection.fetch`.
 
 **Changed**
 
-- The capture half resolves config **per session** (`state.config`) instead of
-  once at apply time, so `agentId`, `contextMaxChars` and the daemon URL can
-  differ between two concurrently running sessions.
-- The recall half resolves its view inside `render()` via a `resolve(cwd)` hook,
-  which is the only place the session exists. `promptInject` fixes a slot's
-  `maxChars` at registration, so the slot now registers at a wide ceiling
-  (64k) and the per-session `recall.maxChars` is enforced in `render()`.
-- The spool drain timer drains every daemon target a workspace has selected,
-  not just the profile one.
+- **All settings now live in one file:**
+
+  ```
+  <DSH_HOME>/storages/dsh-agentmemory-workspaces.json
+  ```
+
+  of the shape `{ version, global, workspaces: { <path>: {...} } }`, beside
+  every other section of DSH. `cordis.patch.yml` keeps only the mount row
+  (`id` + `name`), so the generated settings form no longer edits these fields —
+  this page is the only editor. A value left in the YAML row still works: the
+  store is read first, then the row, then the built-in default.
+- **Upgrade is automatic.** On first run the values still in the profile row are
+  imported into the store, so an existing install keeps its configured daemon
+  URL instead of falling back to `localhost`. Run once; the row is ignored
+  afterwards. A store written by the previous build (no `global` block) still
+  reads.
+- **The global form autosaves** (400ms debounce) instead of requiring a Save
+  press, matching every other settings section. Only fields that differ from the
+  loaded snapshot are written.
+- The capture half resolves config **per session**, so `agentId`,
+  `contextMaxChars` and the daemon URL can differ between two concurrently
+  running sessions. The recall half resolves its view inside `render()`, the
+  only place the session exists; because `promptInject` fixes a slot's
+  `maxChars` at registration, the slot registers at a 64k ceiling and the
+  per-session `recall.maxChars` is enforced in `render()`.
+- The spool drain timer drains every daemon target a workspace has selected, not
+  just the profile one.
+- Path keys are canonicalised: trailing separators dropped and, where the
+  directory exists, `realpath` applied — a project reached through a symlink is
+  one workspace, not two competing blocks.
 
 **Fixed**
 
-- **The edit route answered 401 to everything.** The first build registered it
-  on `webServer` outside `/api` and called `connection.admit()` itself. Only the
-  `/api` carrier mints the browser cookie that `admit` verifies, so every
-  request was refused — and the same code also rejected requests when
-  `connection` happened to load after `webServer`. Now the route goes through
-  `connection.fetch.register()` (the official plugin entry point, which also
-  validates that the path is under `/api`), with a Host/Origin-checked
-  `webServer` fallback on a separate path for compositions without it.
-- **Volatile config leaves were written back as `{}`.** `read-global` returned
-  `{"limit":{}}` and `write-global` persisted the same into
-  `cordis.patch.yml`, because schema-resolved fields are `{ get }` references.
-  Both paths now go through an unwrapped view.
+- **Saving one workspace erased every global setting.** The workspace writers
+  rebuilt the document from `{version, workspaces}` and dropped `global`.
+- **The route answered 401 to everything.** The first build registered it on
+  `webServer` outside `/api` and called `connection.admit()` itself. Only the
+  `/api` carrier mints the browser cookie `admit` verifies, so every request was
+  refused; it also failed whenever `connection` loaded after `webServer`.
+- **Volatile config leaves came back as `{}`.** Schema-resolved fields are
+  `{ get }` references, so the page showed `{"limit":{}}` for every recall field.
+  All read paths now unwrap.
+- **The page never left its loading placeholder.** `setRemote` was declared but
+  never called, and it referenced a helper that did not exist.
+- **The global save wrote all fourteen fields** on any edit, and stored cleared
+  values as `""` — which the runtime reads as an explicit empty id. It now sends
+  only what differs and omits blanks so defaults apply.
+- **An early return above the hooks** blanked the settings panel: the hook count
+  differed between renders, so React dropped the effect that loads the data.
 
-**Security**
+**Tests**
 
-- **`url` and `secretEnv` are refused from a workspace file by default.** A
-  repository is untrusted input; letting a cloned project set the daemon would
-  be enough to redirect every captured prompt. Opt in per deployment with
-  `workspace.allowEndpointOverride: true`.
-- The workspace parser rejects flow collections, anchors, aliases, block
-  scalars, `!!` tags and multiple documents **with a line number**. A `!!js`
-  scalar checked into a repository is never evaluated.
+55 pass. New contract tests pin the classes of bug above: undefined label
+references, an early return before the last hook, a helper call with no
+declaration, a page action the Host does not serve, and a workspace write that
+would drop the global block. Each was confirmed red before green.
 
 ## 简体中文
 
 **新增**
 
-- **按工作空间配置。** 会话工作目录下的 `.dsh-agentmemory.yml` 现在只对那个目录
-  覆盖全局配置。DSH 自身的配置层全部属于 profile，在此之前一台机器上所有会话
-  不论在哪个项目里都共用一个 daemon、一个 `agentId`、一套召回预算。查找从工作
-  目录向上，遇到含 `.git` 的目录即停；越近的文件按键优先，没写的键回落到全局值。
-- `workspace` 配置块：`enabled`、`fileName`、`maxDepth`、
-  `allowEndpointOverride`。四项都能在配置页里改。
-- `lib/workspace-config.js`——目录查找、刻意做小的 YAML 子集解析器、按
-  mtime+size 缓存、以及把每个被拒绝的键都报出来的校验（不静默丢弃）。
-- **设置页六个文件操作**——保存到全局 / 保存到工作空间 / 从全局读取 /
-  从工作空间读取 / 清除工作空间设置 / 恢复默认，外加一个目标目录框。
-  Host 半边在 `lib/workspace-route.js` 里，经 `connection.fetch.register()`
-  挂在 `/api/dsh-agentmemory/workspace`，由官方 `/api` 载体鉴权，插件自身
-  完全不碰 cookie。`test/workspace-integration.test.js` 用真实 `apply()`
-  端到端驱动。
+- **按工作区设置。** DSH 自身的配置层全部属于 profile，在此之前一台机器上所有
+  会话不论在哪个项目里都共用一个 daemon、一个 `agentId`、一套召回预算。配置页
+  现在有「按工作区覆盖」区：从 DSH 已注册的工作区里选一个，下面的字段只对在该
+  目录下启动的会话覆盖全局值。改一下就存，不需要点保存。
+- **下拉框列出全部已注册工作区**，包括还没有任何设置的。只列「已有设置的」会让
+  第一个覆盖永远建不起来。
+- **删除单个工作区配置的按钮**，位于选择器上方独占一行。它只删那个工作区的块，
+  工作区本身、它的会话以及其他工作区的设置都不受影响。清空字段本身就等于「跟随
+  全局」，因此不需要额外的清除控件。
+- `lib/workspace-store.js`——唯一的存储层：规范化路径键、原子写入、默认值，以及
+  从 profile 行一次性导入。
+- `lib/workspace-route.js`——配置页的宿主半边，经
+  `connection.fetch.register()` 挂在 `/api/dsh-agentmemory/workspace`，由官方
+  `/api` 载体鉴权，插件自身不碰 cookie。没有 `connection.fetch` 的组合走另一条
+  路径、自行校验 Host/Origin 的 `webServer` 兜底。
 
 **变更**
 
-- 采集半边改为**按会话**解析配置（`state.config`），不再在 apply 时解析一次，
-  因此同时运行的两个会话可以有不同的 `agentId`、`contextMaxChars` 和 daemon 地址。
-- 召回半边在 `render()` 内通过 `resolve(cwd)` 钩子解析自己的视图——那是会话唯一
-  存在的地方。`promptInject` 的 `maxChars` 在注册时固定，所以插槽改用一个宽上限
-  （64k）注册，按会话的 `recall.maxChars` 在 `render()` 里执行。
-- 暂存区排空定时器会排空工作空间选过的每一个 daemon 目标，而不只是 profile 那个。
+- **所有设置现在只存在一个文件里：**
+
+  ```
+  <DSH_HOME>/storages/dsh-agentmemory-workspaces.json
+  ```
+
+  形如 `{ version, global, workspaces: { <路径>: {...} } }`，与 DSH 其他各节的
+  数据放在一起。`cordis.patch.yml` 只保留挂载行（`id` + `name`），生成式设置表单
+  不再编辑这些字段——本页面是唯一入口。YAML 行里留着值仍然有效：先读存储，再读
+  该行，最后用内置默认值。
+- **升级自动完成。** 首次启动会把 profile 行里现有的值导入存储，因此已有安装不会
+  丢掉配置好的 daemon 地址、回落到 `localhost`。只跑一次，之后忽略该行。旧版本写
+  出的存储（没有 `global` 块）仍能正常读取。
+- **全局表单改为自动保存**（400ms 防抖），不再需要点「保存」，与其他设置节一致。
+  只写入与加载时快照不同的字段。
+- 采集半边改为**按会话**解析配置，因此同时运行的两个会话可以有不同的 `agentId`、
+  `contextMaxChars` 和 daemon 地址。召回半边在 `render()` 内解析自己的视图——那是
+  会话唯一存在的地方；由于 `promptInject` 的 `maxChars` 在注册时固定，插槽按 64k
+  上限注册，按会话的 `recall.maxChars` 在 `render()` 里执行。
+- 暂存区排空定时器会排空工作区选过的每一个 daemon 目标，而不只是 profile 那个。
+- 路径键会规范化：去掉尾部斜杠，目录存在时套用 `realpath`——通过符号链接到达的
+  项目算一个工作区，而不是两个互相打架的块。
 
 **修复**
 
-- **编辑路由对一切请求都回 401。** 第一版把它注册在 `/api` 之外的 `webServer`
-  上并自己调 `connection.admit()`。但只有 `/api` 载体才会签发 `admit` 所校验的
-  浏览器 cookie，于是每个请求都被拒；当 `connection` 晚于 `webServer` 加载时，
-  同一段代码同样会拒。现改为走 `connection.fetch.register()`（官方插件入口，
-  它本身会校验路径必须在 `/api` 下），并为没有该服务的组合保留一条独立路径、
-  自行校验 Host/Origin 的 `webServer` 兜底。
-- **volatile 配置叶子被写回成 `{}`。** `read-global` 返回 `{"limit":{}}`，
-  `write-global` 还把同样的东西写进 `cordis.patch.yml`，原因是 schema 解析出的
-  字段是 `{ get }` 引用。两条路径现在都走解包后的视图。
+- **保存一个工作区会抹掉所有全局设置。** 工作区写入从
+  `{version, workspaces}` 重建文档，把 `global` 丢了。
+- **路由对一切请求都回 401。** 第一版注册在 `/api` 之外的 `webServer` 上并自己调
+  `connection.admit()`。但只有 `/api` 载体才会签发 `admit` 所校验的浏览器 cookie，
+  于是每个请求都被拒；当 `connection` 晚于 `webServer` 加载时同样会拒。
+- **volatile 配置叶子被读成 `{}`。** schema 解析出的字段是 `{ get }` 引用，页面
+  因此对每个召回字段显示 `{"limit":{}}`。所有读取路径现已解包。
+- **页面永远停在加载态。** `setRemote` 声明了却从未调用，且它引用了一个不存在的
+  辅助函数。
+- **全局保存会把 14 个字段全部写一遍**，并把清空的值存成 `""`——运行时会把空字符
+  串当成显式的空 id。现在只发送有差异的字段，并省略空值以让默认值生效。
+- **早退写在了 hook 之前**导致设置面板空白：两次渲染的 hook 数量不同，React 因此
+  丢弃了负责加载数据的 effect。
 
-**安全**
+**测试**
 
-- **默认拒绝工作空间文件里的 `url` 与 `secretEnv`。** 仓库是不可信输入；让克隆来的
-  项目设定 daemon，就足以把本机捕获的每条对话改发到别处。需要时按部署打开
-  `workspace.allowEndpointOverride: true`。
-- 工作空间解析器拒绝流式集合、锚点、别名、块标量、`!!` 标签与多文档，且**带行号**。
-  仓库里签入的 `!!js` 标量绝不会被求值。
+55 项通过。新增的契约测试锁定上述几类错误：引用未定义的标签、早退在最后一个
+hook 之前、调用未声明的辅助函数、页面调用了宿主未提供的 action、以及会丢全局块的
+工作区写入。每一条都验证过先红后绿。
 
 ---
 

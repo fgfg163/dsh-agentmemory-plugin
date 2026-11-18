@@ -88,7 +88,12 @@ jobs:
           grep -q 'function contextMaxChars(config)' lib/index.js \
             || { echo "::error::contextMaxChars helper is missing"; exit 1; }
 
-          callsites=$(grep -c 'contextMaxChars(config))' lib/index.js || true)
+          # Two CALL sites must exist (the capture half's /session/start and
+          # /context paths). Neither the argument nor the definition line is
+          # pinned: since 0.13.0 the value comes from the per-session config
+          # (`state.config`) instead of the apply-time `config`, so matching
+          # `(config)` failed on correct code. Count callers, not variable names.
+          callsites=$(grep 'contextMaxChars([a-zA-Z_$][^)]*)' lib/index.js | grep -vc '^function contextMaxChars' || true)
           echo "patched call sites: $callsites"
           test "$callsites" -eq 2 || { echo "::error::expected 2 patched call sites, found $callsites"; exit 1; }
 

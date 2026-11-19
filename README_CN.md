@@ -112,7 +112,8 @@ pnpm add @fgfg163/dsh-prompt-slot   # 每轮召回必需
 | `url` | string | `http://localhost:3111` | daemon 地址。**远程 http 只有本包支持** |
 | `secret` | string | 读 `~/.agentmemory/secret` | bearer token。远程 daemon 必填 |
 | `contextMaxChars` | number | `64000` | 注入记忆的字符上限（本包新增） |
-| `agentId` | string | `owner` | 写入 daemon 的身份。**多 harness 共享同一份存储时，每台都配成同一个值**（本包新增） |
+| `agentId` | string | `owner` | 写入捕获记录的身份。**多 harness 共享同一份存储时，每台都配成同一个值**（本包新增） |
+| `recallAgentId` | string | *（空＝不过滤）* | 每轮召回查询时带的身份过滤（0.13.2 新增） |
 
 也可以用环境变量 `AGENTMEMORY_CONTEXT_MAX_CHARS` 覆盖，优先级：`config.contextMaxChars` > 环境变量 > 64000。
 
@@ -143,8 +144,10 @@ daemon 自己的兜底值是 `owner`。如果历史行是 `owner`，而新接的
 
 两点要知道：
 
-- **召回不受这个设置影响。** 召回那半边故意不传 `agentId`（理由见 `lib/recall.js` 的
-  "Scope" 注释），所以它检索的是整份共享存储。`agentId` 只决定**写入**怎么打标。
+- **召回用的是另一个 id，默认不过滤。** `agentId` 只决定**写入**怎么打标；读侧是
+  `recallAgentId`。它默认留空，所以召回检索的是整份共享存储——把它填成写侧那个 id
+  就等于加了一道硬过滤，历史里其它 id 的记录会一起被藏掉。只有确实想要「按 id 圈定
+  读范围」时才填（比如某个工作区只读它自己的结论）。`*` 是 daemon 的通配。
 - **这是写入侧的设置。** 改它不会迁移已经按旧 id 落库的行，旧行原地不动。
 
 > `name:` 外面那对单引号别省。scoped 包名带 `/`，YAML 裸写会被解析出歧义，必须引起来。
@@ -314,6 +317,7 @@ DSH 自身的配置层全部属于**某个 profile**：bundle patch、profile �
 | `secretEnv` | `AGENTMEMORY_SECRET` | 凭据**引用**；值存在凭据存储里 |
 | `contextMaxChars` | `64000` | 每会话 `/context` 注入的字符上限 |
 | `agentId` | `owner` | 写入每条记录的 id；共用同一 daemon 的机器必须一致 |
+| `recallAgentId` | `''`（不过滤） | 召回查询带的过滤 id；留空＝检索整份共享存储 |
 | `workspace.enabled` | `true` | 按工作区覆盖层的总开关 |
 | `recall.limit` | `5` | 每轮向 daemon 请求的条数 |
 | `recall.maxChars` | `4000` | 召回块的整体上限 |

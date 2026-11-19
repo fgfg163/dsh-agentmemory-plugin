@@ -138,7 +138,7 @@ test('renders a memory into a marked block over two hops', async () => {
   assert.ok(fake.calls.every((call) => call.url === 'http://daemon:3111/agentmemory/smart-search'))
 })
 
-test('the query hop sends targetLayer: memory and no project/agentId', async () => {
+test('the query hop sends targetLayer: memory and no project', async () => {
   const fake = daemon([{ obsId: 'm1', score: 1, text: 'x' }])
   const harness = makeCtx()
   applyRecall(harness.ctx, { url: 'http://d:1', project: 'DSH', agentId: 'owner', fetch: fake.fetchImpl })
@@ -147,8 +147,64 @@ test('the query hop sends targetLayer: memory and no project/agentId', async () 
   for (const call of fake.calls) {
     assert.equal(call.body.targetLayer, 'memory', 'narrow to compressed conclusions')
     assert.ok(!('project' in call.body), 'project is a dead key — must not be sent')
-    assert.ok(!('agentId' in call.body), 'agentId silently drops historical rows — must not be sent')
   }
+})
+
+/*
+ * 0.13.2 split the agent id in two.
+ *
+ * Before the split there was one `agentId`, used for writing captured rows and
+ * (after 0.13.0) also handed to the recall half — except the recall half still
+ * refused to send it, because a hard equality filter on a store holding several
+ * ids hides most of it. Now the capture side keeps `agentId` and the read side
+ * has its own `recallAgentId`, which defaults to "send nothing".
+ */
+test('the capture-side agentId is NOT used as a recall filter', async () => {
+  const fake = daemon([{ obsId: 'm1', score: 1, text: 'x' }])
+  const harness = makeCtx()
+  // Both are set: this is the regression guard. `agentId` must not leak into
+  // the query, because it would filter every historical row with another id.
+  applyRecall(harness.ctx, { url: 'http://d:1', agentId: 'owner', recallAgentId: 'reader', fetch: fake.fetchImpl })
+  await harness.slots[0].render(renderContext('how do I install the plugin'))
+
+  for (const call of fake.calls) {
+    assert.equal(call.body.agentId, 'reader', 'the READ id is the one that filters')
+    assert.ok(!('agentId' in call.body && call.body.agentId === 'owner'), 'the write id must never filter')
+  }
+})
+
+test('with recallAgentId unset, no agentId key is sent at all', async () => {
+  const fake = daemon([{ obsId: 'm1', score: 1, text: 'x' }])
+  const harness = makeCtx()
+  applyRecall(harness.ctx, { url: 'http://d:1', agentId: 'owner', recallAgentId: '   ', fetch: fake.fetchImpl })
+  await harness.slots[0].render(renderContext('how do I install the plugin'))
+
+  assert.ok(fake.calls.length > 0, 'the daemon was still queried')
+  for (const call of fake.calls) {
+    assert.ok(!('agentId' in call.body), 'a blank read id must not become an empty-string filter')
+  }
+})
+
+test('recallAgentId applies to BOTH hops', async () => {
+  // Hop 2 (expandIds) re-applies the filter daemon-side. Sending it only on hop
+  // 1 would let hop 2 return rows the filter was meant to exclude.
+  const fake = daemon([{ obsId: 'm1', score: 1, text: 'x' }])
+  const harness = makeCtx()
+  applyRecall(harness.ctx, { url: 'http://d:1', recallAgentId: 'reader', fetch: fake.fetchImpl })
+  await harness.slots[0].render(renderContext('how do I install the plugin'))
+
+  assert.deepEqual(fake.hops(), ['query', 'expand'], 'both hops ran')
+  for (const call of fake.calls) assert.equal(call.body.agentId, 'reader')
+})
+
+test('the wildcard read id is passed through verbatim', async () => {
+  // `*` is the daemon's explicit "read across agents" marker; stripping or
+  // lowercasing it would turn an opt-in wildcard back into a real filter.
+  const fake = daemon([{ obsId: 'm1', score: 1, text: 'x' }])
+  const harness = makeCtx()
+  applyRecall(harness.ctx, { url: 'http://d:1', recallAgentId: '*', fetch: fake.fetchImpl })
+  await harness.slots[0].render(renderContext('how do I install the plugin'))
+  assert.equal(fake.calls[0].body.agentId, '*')
 })
 
 test('the bearer token goes in the header, never the URL', async () => {

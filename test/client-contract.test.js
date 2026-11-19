@@ -186,3 +186,75 @@ test('a failed store read still leaves the loading state', () => {
   assert.ok(inside.includes('setRemote('), 'the error branch must set a value so the panel renders')
   assert.ok(source.includes('storeUnreachable'), 'and the page must say the values are defaults')
 })
+
+/*
+ * 0.13.2 — the settings page must expose TWO agent id fields.
+ *
+ * The whole point of the split is that a user can label captured rows and
+ * filter recall independently. A regression that remerged them into one row
+ * would still pass every other test (the Host accepts both keys), so the page
+ * contract is asserted here: two distinct inputs, distinct ids, and a blank
+ * read id that says what blank means.
+ */
+test('the page renders separate write and read agent id fields', () => {
+  assert.ok(source.includes("id: 'am-agent'"), 'the write id field exists')
+  assert.ok(source.includes("id: 'am-recall-agent'"), 'the read id field exists')
+  assert.ok(source.includes("setPath(['recallAgentId']"), 'the read id is editable on its own path')
+  assert.ok(source.includes("setPath(['agentId']"), 'the write id is still editable')
+  // Two rows, not one control with two labels.
+  assert.ok(source.includes('labels.recallAgentIdTitle'), 'the read id row is labelled')
+  assert.ok(source.includes('labels.agentIdTitle'), 'the write id row is labelled')
+})
+
+test('the read id field says that blank means no filter', () => {
+  // Without this the field looks empty-and-broken rather than deliberately off,
+  // and users type "owner" to "fix" it — which is the filter this split avoids.
+  const row = source.slice(source.indexOf("id: 'am-recall-agent'"))
+  assert.ok(row.includes("placeholder: '留空＝不过滤'"), 'blank is explained in the field itself')
+})
+
+test('clearing the read id is sent, not dropped', () => {
+  // `url` / `agentId` are dropped when blank so the default applies. The read id
+  // must NOT be dropped: the Host merges what the page sends, so an absent key
+  // leaves the old filter in place and clearing the field silently does nothing.
+  const save = source.slice(source.indexOf('const commitGlobal'))
+  assert.ok(!save.includes("if (cleaned.recallAgentId === '')"), 'a blank read id is not deleted from the payload')
+  assert.ok(!/recallAgentId: ''/.test(source.split('const commitGlobal')[0]), 'the old empty-string guard is gone')
+})
+
+/*
+ * The workspace override rows are generated from one loop, so a missing width
+ * silently falls back to whatever the last hand-written value was — which is
+ * how every field ended up the same 220px box, an id field as wide as a
+ * five-digit character ceiling. These assertions pin the per-field widths to
+ * the same numbers the hand-written global rows use.
+ */
+test('every workspace override field declares its own width', () => {
+  const table = source.slice(source.indexOf('const WS_OVERRIDE_FIELDS'), source.indexOf(']', source.indexOf('const WS_OVERRIDE_FIELDS')))
+  const entries = [...table.matchAll(/\{\s*key:\s*'([\w]+)'[^}]*\}/g)]
+  assert.ok(entries.length >= 8, `the field table parsed (found ${entries.length})`)
+  for (const entry of entries) {
+    assert.match(entry[0], /\bwidth:\s*\d+/, `${entry[1]} declares a width`)
+  }
+})
+
+test('the workspace rows actually use the declared width', () => {
+  // Declaring widths but rendering a literal would pass the test above and
+  // still look uniform, so the render path is asserted separately.
+  const render = source.slice(source.indexOf('...WS_OVERRIDE_FIELDS.map'))
+  assert.ok(render.includes('width: field.width'), 'the input uses field.width')
+  assert.ok(!/width:\s*220/.test(render.slice(0, 1200)), 'no hardcoded 220 remains in the override rows')
+})
+
+test('ids are narrower than long numbers, matching the global rows', () => {
+  // A shape assertion rather than exact values: it catches a reformat that
+  // collapses the table back to one width, without pinning every future edit.
+  const table = source.slice(source.indexOf('const WS_OVERRIDE_FIELDS'), source.indexOf(']', source.indexOf('const WS_OVERRIDE_FIELDS')))
+  const widthOf = (key) => {
+    const hit = table.match(new RegExp(`key: '${key}'[^}]*width: (\\d+)`))
+    return hit ? Number(hit[1]) : undefined
+  }
+  assert.equal(widthOf('agentId'), 180, 'ids get the global id width')
+  assert.equal(widthOf('maxChars'), 140, 'the long ceiling matches the global one')
+  assert.equal(widthOf('minConfidence'), 100, 'a 0..1 value needs the least room')
+})

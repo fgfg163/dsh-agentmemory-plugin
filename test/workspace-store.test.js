@@ -459,3 +459,77 @@ test('saving a workspace never erases the global block', async () => {
     assert.equal(readGlobalSettings().config.contextMaxChars, 12345, 'survives a clear')
   })
 })
+
+/*
+ * 0.13.2 — the agent id is stored twice, as two independent settings.
+ *
+ * `agentId` labels captured rows; `recallAgentId` filters the per-turn recall
+ * query. The store must keep them apart: neither may be derived from the other,
+ * and a workspace must be able to override one without touching the other.
+ */
+test('the two agent ids are independent settings', async () => {
+  await withFreshStore(async (home) => {
+    const a = join(home, 'a')
+    mkdirSync(a)
+
+    // An install that only ever carries the write id must NOT get a filter.
+    writeGlobalSettings({ agentId: 'writer' })
+    assert.equal(readGlobalSettings().config.agentId, 'writer')
+    assert.equal(readGlobalSettings().config.recallAgentId, '', 'no read filter by default')
+
+    // Setting the read id leaves the write id alone, and vice versa.
+    writeGlobalSettings({ agentId: 'writer', recallAgentId: 'reader' })
+    assert.equal(readGlobalSettings().config.agentId, 'writer')
+    assert.equal(readGlobalSettings().config.recallAgentId, 'reader')
+
+    writeGlobalSettings({ agentId: 'writer2', recallAgentId: 'reader' })
+    assert.equal(readGlobalSettings().config.recallAgentId, 'reader', 'write id does not leak into read id')
+  })
+})
+
+test('an empty recallAgentId is not persisted, so clearing it works', async () => {
+  // The default for `recallAgentId` is '', and `writeGlobalSettings` stores only
+  // keys that differ from the default. Clearing the field must therefore REMOVE
+  // the key — if it stored `''`, the file would pin a blank and the next reader
+  // would see a stored value where it should see "unset".
+  await withFreshStore(async () => {
+    writeGlobalSettings({ recallAgentId: 'temp' })
+    assert.equal(readGlobalSettings().config.recallAgentId, 'temp')
+
+    writeGlobalSettings({ recallAgentId: '' })
+    assert.equal(readGlobalSettings().config.recallAgentId, '', 'reads back as the default')
+    const raw = JSON.parse(readFileSync(storePath(), 'utf-8'))
+    assert.ok(!('recallAgentId' in (raw.global ?? {})), 'a cleared read id leaves no key behind')
+  })
+})
+
+test('a workspace overrides the read id without touching the write id', async () => {
+  await withFreshStore(async (home) => {
+    const a = join(home, 'a')
+    mkdirSync(a)
+    writeGlobalSettings({ agentId: 'owner', recallAgentId: 'global-reader' })
+
+    // `writeWorkspaceSettings` REPLACES one workspace's block; the settings
+    // page always sends the whole block it is editing (see `saveOverride` in
+    // lib/client.js). So each write below carries the full desired state — the
+    // point of the test is that the two keys stay independent, not that the
+    // store merges partial writes.
+    writeWorkspaceSettings(a, { recallAgentId: 'local-reader' })
+    const merged = applyWorkspaceSettings(readGlobalSettings().config, a)
+    assert.equal(merged.recallAgentId, 'local-reader', 'workspace read id wins')
+    assert.equal(merged.agentId, 'owner', 'write id is inherited from global')
+
+    writeWorkspaceSettings(a, { recallAgentId: 'local-reader', agentId: 'local-writer' })
+    const merged2 = applyWorkspaceSettings(readGlobalSettings().config, a)
+    assert.equal(merged2.agentId, 'local-writer')
+    assert.equal(merged2.recallAgentId, 'local-reader', 'the read override is unrelated to the write id')
+    assert.equal(readGlobalSettings().config.agentId, 'owner', 'the global write id is untouched')
+  })
+})
+
+test('recallAgentId survives the sanitizer in both layers', () => {
+  const global = sanitizeGlobalSettings({ recallAgentId: 'g', agentId: 'w' })
+  assert.equal(global.recallAgentId, 'g')
+  const workspace = sanitizeWorkspaceSettings({ recallAgentId: 'l', agentId: 'w' })
+  assert.equal(workspace.recallAgentId, 'l')
+})

@@ -5,6 +5,87 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.13.2
+
+## English
+
+**Changed**
+
+- **The two directions of `agentId` are now separate settings.** They were
+  never symmetric, and treating them as one field forced a choice between two
+  bad outcomes:
+  - **Writing** is free. `/session/start` stores the id it is handed and
+    `/observe` copies the session's id onto every row.
+  - **Reading** is a hard equality filter. The daemon drops any row whose
+    `agentId` differs — not reranks it, drops it.
+
+  So the capture side keeps `agentId` (default `owner`), and the recall query
+  gets its own `recallAgentId`, which defaults to **empty meaning "send no
+  filter"**. That is what the plugin has always actually done; the difference
+  is that a scoped read is now possible without also relabelling writes.
+
+  Setting `recallAgentId` to the write id is a narrow read: historical rows
+  filed under another id disappear from recall. `*` is the daemon's wildcard.
+
+**Added**
+
+- `recallAgentId` in the global settings, the per-workspace overrides, the
+  schema and the store. Both ids can be overridden per workspace, independently.
+- The read-id field renders blank with a `留空＝不过滤` placeholder, so an empty
+  field reads as "deliberately off" rather than "not filled in yet".
+
+**Fixed**
+
+- **The workspace override inputs were all the same width.** Those rows are
+  generated from one loop, and the width was written into that loop, so an id
+  field got the same 220px box as a five-digit character ceiling — while the
+  hand-written global rows above were 280/220/180 by content. Each override
+  field now declares its own width, using the same numbers as the global row
+  for the same setting.
+
+**Migration**
+
+- Existing installs need nothing: no store key is written until you type a read
+  id, and an absent key keeps recall unfiltered. Behaviour is unchanged for
+  anyone who never opens the new field.
+
+## 简体中文
+
+**变更**
+
+- **`agentId` 的写和读拆成两个独立设置。** 这两个方向从来不对称，当成一个字段
+  就只能在两个坏结果里挑一个：
+  - **写入**是自由的。`/session/start` 存下给它的 id，`/observe` 把会话的 id
+    抄到每条记录上。
+  - **读取**是硬等值过滤。daemon 对不上的行直接丢掉——不是排到后面，是丢掉。
+
+  所以捕获侧保留 `agentId`（默认 `owner`），召回查询改用独立的
+  `recallAgentId`，默认**留空即「不传过滤」**。这本来就是插件的实际行为，区别在于
+  现在可以在不重新打标写入的前提下做圈定读。
+
+  把 `recallAgentId` 填成写侧那个 id 就是窄读：历史里其它 id 的记录会从召回里消失。
+  `*` 是 daemon 的通配。
+
+**新增**
+
+- `recallAgentId` 已接入全局设置、按工作区覆盖、schema 与存储层。两个 id 都能
+  按工作区独立覆盖。
+- 读侧 id 输入框默认空白 + `留空＝不过滤` 占位提示，让空字段看起来是「故意关掉」
+  而不是「还没填」。
+
+**修复**
+
+- **工作区的覆盖输入框全是一个宽度。** 那一块是一个循环批量生成的，宽度写死在
+  循环里，于是 id 字段和五位的字符上限一样宽（220px）；而上面手写的全局行是按内容
+  给的 280/220/180。现在每个覆盖字段各自声明宽度，取值与全局同类字段一致。
+
+**迁移**
+
+- 已有安装什么都不用做：不填读侧 id 就不会写入任何存储键，缺键即保持召回不过滤。
+  不开这个新字段的人行为完全不变。
+
+---
+
 # 0.13.1
 
 ## English

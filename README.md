@@ -113,7 +113,8 @@ Add this to `$DSH_HOME/cordis.patch.yml` (global) or `profiles/<profile>/cordis.
 | `url` | string | `http://localhost:3111` | Daemon address. **Remote http only works with this package** |
 | `secret` | string | read from `~/.agentmemory/secret` | Bearer token. Required for a remote daemon |
 | `contextMaxChars` | number | `64000` | Character cap for injected memory (new in this package) |
-| `agentId` | string | `owner` | Identity written to the daemon. **Set the same value on every harness that shares one store** (new in this package) |
+| `agentId` | string | `owner` | Identity written to captured rows. **Set the same value on every harness that shares one store** (new in this package) |
+| `recallAgentId` | string | *(empty = no filter)* | Identity used to FILTER the per-turn recall query (new in 0.13.2) |
 
 You can also override it with the `AGENTMEMORY_CONTEXT_MAX_CHARS` environment variable. Precedence: `config.contextMaxChars` > environment variable > 64000.
 
@@ -150,9 +151,12 @@ upstream's.
 
 Two consequences worth knowing:
 
-- **Recall is unaffected by this setting.** The recall half deliberately sends no
-  `agentId` (see the "Scope" comment in `lib/recall.js`) so it searches the whole
-  shared store. `agentId` only decides how *writes* are tagged.
+- **Recall has its own id, and defaults to no filter.** `agentId` only decides
+  how *writes* are tagged; the read side is `recallAgentId`. It is blank by
+  default so recall searches the whole shared store — pointing it at the write
+  id is a hard filter that hides every row filed under a different one. Set it
+  only when you deliberately want a scoped read (sessions in one workspace
+  reading only that workspace's conclusions, say). `*` is the daemon's wildcard.
 - **It is a write-side setting.** Changing it does not migrate rows already
   stored under the old id; they stay where they are.
 
@@ -329,6 +333,7 @@ write them anywhere:
 | `secretEnv` | `AGENTMEMORY_SECRET` | Credential **reference**; the value lives in the credentials store |
 | `contextMaxChars` | `64000` | Character ceiling for the once-per-session `/context` injection |
 | `agentId` | `owner` | id written on every captured row; must match across machines sharing one daemon |
+| `recallAgentId` | `''` (no filter) | id sent to FILTER the recall query; blank searches the whole shared store |
 | `workspace.enabled` | `true` | Master switch for the per-workspace layer |
 | `recall.limit` | `5` | Results requested from the daemon per turn |
 | `recall.maxChars` | `4000` | Ceiling for the composed recall block |

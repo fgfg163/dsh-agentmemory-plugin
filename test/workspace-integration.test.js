@@ -240,6 +240,71 @@ test('a customised workspace missing from the registry is still listed', async (
   })
 })
 
+/*
+ * 0.13.4 — the profile directory must never become a settings target.
+ *
+ * What shipped: the page loads without a selection, the Host answered with
+ * `workingDirectory.defaultDirectory` (the desktop host's PROFILE directory,
+ * `%DSH_HOME%\profiles\desktop`), the page adopted that key, and the next
+ * keystroke created a block for it. The phantom block then appeared in the
+ * picker as a second workspace. These assertions pin all three layers.
+ */
+test('status without a workspace names none, instead of echoing a host directory', async () => {
+  await withHome(async ({ workspace }) => {
+    const route = await boot({ workspace, editedRef: { value: undefined } })
+    // `boot` gives the fake context `workingDirectory.defaultDirectory = workspace`
+    // on purpose: if the Host ever falls back to it again, this test fails.
+    const status = await request(route, { action: 'status' })
+    assert.equal(status.json.workspaceKey, null, 'no workspace named => no key')
+    assert.equal(status.json.workspace, null)
+    // And nothing was created for the fallback directory on the way.
+    assert.equal(status.json.workspaceCount, 0)
+    assert.deepEqual(status.json.orphaned, [])
+  })
+})
+
+test('a write that names no workspace is refused, not redirected', async () => {
+  await withHome(async ({ workspace }) => {
+    const route = await boot({ workspace, editedRef: { value: undefined } })
+
+    for (const body of [
+      { action: 'save', settings: { agentId: 'nowhere' } },
+      { action: 'save', workspace: '   ', settings: { agentId: 'nowhere' } },
+      { action: 'clear' },
+    ]) {
+      const refused = await request(route, body)
+      assert.equal(refused.status, 400, `${JSON.stringify(body)} must be refused: ${JSON.stringify(refused.json)}`)
+      assert.equal(refused.json.ok, false)
+    }
+    assert.ok(!existsSync(storePath()) || !readFileSync(storePath(), 'utf-8').includes('nowhere'), 'refused writes left no trace')
+
+    // Naming one still works, and lands there.
+    const saved = await request(route, { action: 'save', workspace, settings: { agentId: 'here' } })
+    assert.equal(saved.status, 200, JSON.stringify(saved.json))
+    const onDisk = JSON.parse(readFileSync(storePath(), 'utf-8'))
+    assert.equal(onDisk.workspaces[normalizeWorkspaceKey(workspace)].agentId, 'here')
+    assert.equal(Object.keys(onDisk.workspaces).length, 1, 'no extra block appeared')
+  })
+})
+
+test('a registered row and an orphan row are distinguishable', async () => {
+  // The stray `profiles\desktop` block looked exactly like a real workspace in
+  // the picker, which is why it read as "DSH has two workspaces".
+  await withHome(async ({ home, workspace }) => {
+    const { writeWorkspaceSettings } = await import('../lib/workspace-store.js')
+    const orphan = join(home, 'not-a-workspace')
+    mkdirSync(orphan)
+    writeWorkspaceSettings(orphan, { agentId: 'orphan' })
+
+    const route = await boot({ workspace, editedRef: { value: undefined } })
+    const status = await request(route, { action: 'status' })
+    const byPath = new Map(status.json.workspaces.map((row) => [row.path, row]))
+    assert.equal(byPath.get(workspace).registered, true)
+    assert.equal(byPath.get(orphan).registered, false)
+    assert.deepEqual(status.json.orphaned, [orphan])
+  })
+})
+
 test('a cross-site request is refused by the fallback', async () => {
   await withHome(async ({ workspace }) => {
     const route = await boot({ workspace, editedRef: { value: undefined } })

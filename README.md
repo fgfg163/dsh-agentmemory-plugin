@@ -265,6 +265,19 @@ The picker lists **every registered workspace**, not only the ones that already
 have settings — otherwise the first override could never be created. Workspaces
 that carry settings are marked `✓已覆盖`.
 
+**Nothing is targeted until you pick something.** The picker starts on
+「— 未选择 —」 and the override fields stay hidden until a workspace is chosen.
+This is deliberate: before 0.13.4 the page assigned a target on its own, using
+the host process's directory (`%DSH_HOME%\profiles\desktop` in the desktop app),
+so a first edit created a settings block for that directory. It then appeared in
+the picker as a phantom second workspace. A write must now name its workspace;
+the Host answers `400` for a request that does not.
+
+A stored block whose directory no longer matches any DSH workspace is listed
+with「（不在工作区列表里）」rather than looking like a normal choice. Those are
+the leftovers described above; select one and press **删除这个工作区的配置** to
+remove it.
+
 The **删除这个工作区的配置** button removes that one workspace's settings. The
 workspace itself, its sessions and every other workspace are untouched. To get
 the settings back, pick the workspace again and change any field: DSH keeps the

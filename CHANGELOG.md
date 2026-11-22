@@ -5,6 +5,93 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.13.4
+
+## English
+
+**Fixed**
+
+- **The settings page could create a phantom workspace, and doing so made it
+  impossible to configure the real one.** Opening the page assigned a target
+  before the user picked anything: `status` was called without a workspace, the
+  Host fell back to `workingDirectory.defaultDirectory`, and in the desktop host
+  that is the PROFILE directory (`%DSH_HOME%\profiles\desktop`) — not a project
+  at all. The page then adopted that key, so the first keystroke in any override
+  field wrote a settings block for `profiles\desktop`. Because the block existed,
+  the picker listed it, and the list showed two entries where the user had one
+  workspace.
+
+  Three layers were fixed, because any one of them alone would have prevented
+  it:
+  1. The Host no longer falls back to the process/profile directory.
+     `resolveDirectory` answers `undefined` when the request names no workspace.
+  2. `save` and `clear` require a named workspace and answer `400` otherwise.
+     A write must never be redirected to a guessed directory.
+  3. The page only adopts a `workspaceKey` that the picker actually offers, so a
+     key with no matching option becomes "nothing selected" rather than being
+     stored and displayed as the first option.
+
+- **A select with no blank option showed the wrong workspace as selected.** When
+  `wsKey` held a path with no corresponding `<option>`, the browser rendered the
+  first real option, so the control read `dsh — E:\gem12\dsh` while edits were
+  being written to the profile directory. The picker now has an explicit
+  「— 未选择 —」 entry, and the override rows stay hidden while nothing is
+  selected, with a line saying a workspace must be picked first.
+
+**Added**
+
+- A stored block whose directory is not (or no longer) a DSH workspace is
+  labelled「（不在工作区列表里）」in the picker and reported by `status` as
+  `registered: false` plus an `orphaned` array. Previously such a row rendered
+  identically to a real workspace, which is what made a stray block read as a
+  second workspace rather than as leftover data.
+
+**Upgrade note**
+
+- The stray block is NOT deleted automatically. Find it in the picker — it is the
+  one marked「（不在工作区列表里）」— select it, and press
+  「删除这个工作区的配置」. Only settings for directories that no workspace
+  answers to are affected.
+
+## 简体中文
+
+**修复**
+
+- **设置页会凭空创建一个工作区，而这个假条目反而让人配不好真正的工作区。**
+  打开页面时，在用户还没选任何东西之前它就已经有了目标：`status` 请求不带
+  工作区，Host 于是回退到 `workingDirectory.defaultDirectory`；桌面宿主里
+  那就是 profile 目录（`%DSH_HOME%\profiles\desktop`），根本不是项目目录。
+  页面又采纳了这个键，于是覆盖项里第一次按键就把配置写给了 `profiles\desktop`。
+  条目一旦存在，选择器就会列出它，用户明明只有一个工作区，列表却显示两个。
+
+  三层都改了，因为只改任何一层都不够：
+  1. Host 不再回退到进程/profile 目录。请求没点名工作区时，`resolveDirectory`
+     返回 `undefined`。
+  2. `save` 与 `clear` 必须点名工作区，否则返回 `400`。写入绝不能被重定向到
+     一个猜出来的目录。
+  3. 页面只采纳选择器里**确实存在**的 `workspaceKey`；对不上的键变成
+     「未选择」，而不是被存下来又渲染成第一项。
+
+- **没有空白项的下拉框会把错误的工作区显示成已选中。** 当 `wsKey` 存着一个
+  在 `<option>` 里并不存在的路径时，浏览器会渲染第一个真实选项，于是控件上
+  写着 `dsh — E:\gem12\dsh`，实际却把改动写进了 profile 目录。现在选择器有
+  显式的「— 未选择 —」项；未选中时覆盖项不显示，并明确提示要先选工作区。
+
+**新增**
+
+- 存有配置、但对应目录不是（或已不是）DSH 工作区的条目，在选择器里标注
+  「（不在工作区列表里）」，`status` 也会返回 `registered: false` 与
+  `orphaned` 列表。此前这种行和真实工作区渲染得一模一样，所以一个残留块
+  才会被当成「第二个工作区」，而不是被当成待清理的数据。
+
+**升级提示**
+
+- 残留块**不会**被自动删除。它就在选择器里带「（不在工作区列表里）」标记的
+  那一条：选中它，然后点「删除这个工作区的配置」。只会影响那些没有任何工作区
+  对应的目录设置。
+
+---
+
 # 0.13.3
 
 ## English

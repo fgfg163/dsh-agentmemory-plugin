@@ -283,3 +283,45 @@ test('a workspace override title matches its global label', () => {
   assert.ok(checked.length >= 4, `expected to compare several fields, compared ${checked.length}`)
   assert.ok(checked.includes('contextMaxLessons'), 'the lesson cap is one of the compared fields')
 })
+
+/*
+ * 0.13.4 — the profile directory showed up as a second workspace.
+ *
+ * Three layers combined: the Host answered `status` with the process/profile
+ * directory as `workspaceKey`, the page adopted that key unconditionally, and
+ * the select rendered its first real option even though `wsKey` held a path
+ * that had no option at all. The control therefore showed "dsh" while every
+ * edit was written to `%DSH_HOME%\profiles\desktop`.
+ */
+test('the page only adopts a workspace key it actually offers', () => {
+  const load = source.slice(source.indexOf('const loadWorkspace'), source.indexOf('const saveOverride'))
+  // The adoption must be gated on membership in the offered list.
+  assert.ok(load.includes('offered.has(answer)'), 'the Host key is checked against the offered paths')
+  assert.ok(!/setWsKey\(result\.workspaceKey \?\? undefined\)/.test(load), 'the unconditional adoption is gone')
+  // And a key that is not offered must resolve to "nothing selected".
+  assert.ok(/offered\.has\(answer\) \? answer : undefined/.test(load), 'an unoffered key becomes no selection')
+})
+
+test('the picker renders an explicit blank option', () => {
+  // Without a blank option, a select whose value matches no option displays the
+  // first one — the lie that made the wrong target look selected.
+  const picker = source.slice(source.indexOf("id: 'am-ws-pick', className"))
+  assert.ok(picker.includes("value: ''"), 'a blank option exists')
+  assert.ok(picker.includes('labels.wsPickNone'), 'and it is labelled')
+  assert.ok(picker.indexOf('labels.wsPickNone') < picker.indexOf('wsChoices.map'), 'the blank option comes first')
+})
+
+test('an unselected workspace hides the override rows and says why', () => {
+  // An edit with no target is exactly the write that used to land in the
+  // profile directory, so the rows must not be reachable without a selection.
+  assert.ok(source.includes('wsKey !== undefined\n                ? react.createElement(') || source.includes('wsKey !== undefined'), 'override rows are gated on a selection')
+  assert.ok(source.includes('labels.wsPickRequired'), 'the page explains the unselected state')
+})
+
+test('a stored block with no matching workspace is labelled as such', () => {
+  // A stray `profiles\desktop` block used to render identically to a real
+  // workspace row, which is why it read as "DSH has two workspaces".
+  const choices = source.slice(source.indexOf('setWsChoices('), source.indexOf('Only adopt the Host'))
+  assert.ok(choices.includes('row.registered === false'), 'the unregistered case is branched on')
+  assert.ok(choices.includes('labels.wsUnregisteredMark'), 'and it is marked in the label')
+})

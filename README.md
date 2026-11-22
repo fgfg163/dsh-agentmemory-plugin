@@ -285,6 +285,21 @@ workspace, so a new block is created on the first edit. (This only holds while
 the workspace is still in DSH's sidebar; deleting the workspace itself takes its
 settings with it.)
 
+#### Pointing one workspace at a different daemon (new in 0.14.0)
+
+A workspace block may carry `url` and `secretEnv`, so a directory can talk to a
+different daemon — or the same daemon under a different bearer — than the rest of
+the machine. Both rows are rendered in the override list and stay **disabled**
+until 「允许工作区改 daemon / 密钥」 (`workspace.allowEndpointOverride`) is
+switched on.
+
+That switch is not decorative: while it is off, `configFor` drops those two keys
+from the merged view, so a hand-edited file cannot redirect this machine's
+captured conversations without the switch. When such an override is ignored, one
+warning is logged. The same two keys set in the **global** block are the
+operator's own choice and always apply — the gate only covers the workspace
+layer.
+
 ### One settings file
 
 Everything this plugin stores lives in one document:
@@ -345,10 +360,14 @@ write them anywhere:
 | `url` | `''` (falls back to `AGENTMEMORY_URL`, then `localhost:3111`) | Daemon base URL |
 | `secretEnv` | `AGENTMEMORY_SECRET` | Credential **reference**; the value lives in the credentials store |
 | `contextMaxChars` | `64000` | Character ceiling for the once-per-session `/context` injection |
-| `contextMaxLessons` | `0` (no trim) | Ceiling on the `## Lessons Learned` bullets in that injection; the daemon hard-codes 10 and offers no knob, so the plugin trims the rendered block |
+| `contextMaxLessons` | `0` (no trim) | Ceiling on the `## Lessons Learned` bullets in that injection. Sent to the daemon as `maxLessons`, so a patched daemon selects that many up front; the client still trims whatever arrives |
+| `contextBudget` | `0` (send none) | Token budget asked from the daemon for `/context`. The daemon skips a block that does not fit rather than truncating it, so raising `contextMaxLessons` needs a matching budget |
+| `contextTimeoutMs` | `0` (1500 ms) | Timeout for `/context` and `/session/start` — the two calls that carry the whole injected block. A timeout skips memory injection for that session; it is not retried smaller |
+| `fetchTimeoutMs` | `0` (1500 ms) | Timeout for the remaining daemon calls: capture (`/observe`), `/session/end`, bootstrap |
 | `agentId` | `owner` | id written on every captured row; must match across machines sharing one daemon |
 | `recallAgentId` | `''` (no filter) | id sent to FILTER the recall query; blank searches the whole shared store |
 | `workspace.enabled` | `true` | Master switch for the per-workspace layer |
+| `workspace.allowEndpointOverride` | `false` | Allow a workspace to override `url`/`secretEnv`. While off the runtime ignores those two keys in a workspace block (they still apply when set globally) |
 | `recall.limit` | `5` | Results requested from the daemon per turn |
 | `recall.maxChars` | `4000` | Ceiling for the composed recall block |
 | `recall.fetchTimeoutMs` | `1200` | Per-request timeout |

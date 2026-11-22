@@ -5,6 +5,101 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.14.0
+
+## English
+
+**Added**
+
+- **Per-workspace daemon endpoint and credential are now editable from the
+  settings page.** The store has always accepted `url` and `secretEnv` in a
+  workspace block, and the merge has always applied them, but no field was ever
+  rendered, so the capability looked absent. Both rows now appear under the
+  workspace overrides. They stay disabled until 「允许工作区改 daemon / 密钥」
+  (`allowEndpointOverride`) is switched on, because pointing a workspace at a
+  different daemon sends this machine's captured conversations elsewhere.
+
+- **`allowEndpointOverride` now actually enforces.** The switch previously
+  existed only in the page and the store: the runtime merged a workspace's
+  `url`/`secretEnv` unconditionally, so a directory could redirect traffic while
+  the settings page claimed the behaviour was gated. `configFor` now drops those
+  two keys unless the switch is on, and logs one warning so a silently ignored
+  override is visible. Only the workspace layer is affected — the same two keys
+  in the global block are the operator's own choice and always apply.
+
+- **Three new settings, each added to `GLOBAL_KEYS` and `WORKSPACE_KEYS`:**
+  - `contextBudget` — token budget asked from the daemon on `/context`.
+  - `contextTimeoutMs` — timeout for `/context` and `/session/start`.
+  - `fetchTimeoutMs` — timeout for the remaining daemon calls.
+
+  `contextMaxLessons` is now _also_ sent to the daemon as `maxLessons` instead
+  of only trimming the rendered block, so a daemon that accepts the field can
+  select more lessons to begin with.
+
+**Fixed**
+
+- **Saving the settings page erased three settings.** `sanitizeGlobalSettings`
+  keeps only the keys listed in its hard-coded allow-list, so a key missing from
+  `GLOBAL_KEYS` was dropped on every save. The three fields above were added to
+  the runtime before the allow-lists, and a single save silently reset them to
+  their defaults. Both tables now list every key the runtime reads.
+
+  Note that `WORKSPACE_KEYS` governs the global form as well: `write-global`
+  reuses that sanitiser, so a key absent from it is rejected for the global
+  form too, not just for per-workspace overrides.
+
+**Note**
+
+- `maxLessons` is ignored by an unpatched daemon, which keeps injecting its
+  hard-coded ten. Nothing fails in that case: the field is simply not read, and
+  the trim ceiling still applies on the client side.
+
+- A larger `maxLessons` needs a larger `contextBudget`: the daemon skips a block
+  that does not fit inside the budget rather than truncating it, so raising the
+  count alone can return no lessons at all.
+
+## 简体中文
+
+**新增**
+
+- **工作区的 daemon 地址与密钥引用现在可以在设置页编辑。** 存储层一直接受工作区块里的
+  `url` 与 `secretEnv`，合并时也一直会应用，但从来没有渲染出输入框，所以这个能力看起来
+  不存在。这两行现在出现在工作区覆盖项里；在打开「允许工作区改 daemon / 密钥」
+  （`allowEndpointOverride`）之前保持禁用，因为把工作区指向另一个 daemon 等于把本机捕获的
+  对话发到别处。
+
+- **`allowEndpointOverride` 现在真正生效。** 这个开关此前只存在于页面和存储层：运行期
+  会无条件合并工作区的 `url`／`secretEnv`，于是某个目录可以改走别的地址，而设置页却声称
+  这是被拦住的。现在 `configFor` 在开关关闭时会丢弃这两个键，并写一条警告，让「被忽略的
+  覆盖」可见。只影响工作区这一层——全局块里的同名两个键是操作者自己的选择，始终生效。
+
+- **三个新设置项，同时加入 `GLOBAL_KEYS` 与 `WORKSPACE_KEYS`：**
+  - `contextBudget`——向 daemon 请求的 `/context` token 预算。
+  - `contextTimeoutMs`——`/context` 与 `/session/start` 的超时。
+  - `fetchTimeoutMs`——其余 daemon 调用的超时。
+
+  `contextMaxLessons` 现在除了裁剪渲染后的块，还会作为 `maxLessons` 发给 daemon，这样支持
+  该字段的 daemon 可以直接选出更多 lesson。
+
+**修复**
+
+- **在设置页保存会把三个设置抹掉。** `sanitizeGlobalSettings` 只保留硬编码白名单里列出的键，
+  所以不在 `GLOBAL_KEYS` 里的键每次保存都会丢失。上面这三个字段先加进了运行期、后补的白名单，
+  一次保存就静默重置成了默认值。现在两张表都列出了运行期会读取的全部键。
+
+  注意 `WORKSPACE_KEYS` 同时也管着全局表单：`write-global` 复用同一个清洗函数，所以不在表里的
+  键对全局表单同样会被拒，不只影响工作区覆盖。
+
+**注意**
+
+- 未打补丁的 daemon 会忽略 `maxLessons`，继续注入写死的十条。这种情况不会报错：该字段只是
+  不被读取，客户端的裁剪上限照旧生效。
+
+- `maxLessons` 调大需要同时调大 `contextBudget`：daemon 对放不进预算的块是整块跳过而不是截断，
+  所以只提高条数可能一条都不返回。
+
+---
+
 # 0.13.4
 
 ## English

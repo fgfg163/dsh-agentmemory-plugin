@@ -273,6 +273,17 @@ DSH 自身的配置层全部属于**某个 profile**：bundle patch、profile �
 留着工作区，第一次编辑就会新建块。（前提是该工作区仍在 DSH 侧边栏里；删除工作区
 本身会连它的设置一起失去。）
 
+#### 让某个工作区连另一个 daemon（0.14.0 新增）
+
+工作区块里可以写 `url` 与 `secretEnv`，于是某个目录能连到与本机其它目录不同的
+daemon，或同一个 daemon 但用另一份 bearer。这两行现在会出现在覆盖项列表里，但在
+打开「允许工作区改 daemon / 密钥」（`workspace.allowEndpointOverride`）之前保持
+**禁用**。
+
+这个开关不是摆设：关闭时 `configFor` 会把这两个键从合并结果里剔掉，所以即使手工改
+配置文件，也无法在开关关闭的情况下把本机捕获的对话改发到别处；被忽略时会写一条警告。
+写在**全局**块里的同名两个键是操作者自己的选择，始终生效——这道闸门只管工作区这一层。
+
 ### 设置只存在一个文件里
 
 这个插件存的所有东西都在一个文档中：
@@ -326,10 +337,14 @@ DSH 自身的配置层全部属于**某个 profile**：bundle patch、profile �
 | `url` | `''`（回落到 `AGENTMEMORY_URL`，再回落 `localhost:3111`） | Daemon 基址 |
 | `secretEnv` | `AGENTMEMORY_SECRET` | 凭据**引用**；值存在凭据存储里 |
 | `contextMaxChars` | `64000` | 每会话 `/context` 注入的字符上限 |
-| `contextMaxLessons` | `0`（不裁剪） | 注入块里 `## Lessons Learned` 的条数上限；daemon 硬编码 10 条且没有开关，故由插件裁剪已渲染的块 |
+| `contextMaxLessons` | `0`（不裁剪） | 注入块里 `## Lessons Learned` 的条数上限。会作为 `maxLessons` 发给 daemon，支持该字段的 daemon 会直接选出这么多条；客户端仍会裁剪兜底 |
+| `contextBudget` | `0`（不下发） | 向 daemon 请求的 `/context` token 预算。daemon 对放不下的块是整块跳过而非截断，所以调大条数时要同步调大预算 |
+| `contextTimeoutMs` | `0`（1500 ms） | `/context` 与 `/session/start` 的超时——这两个调用要传整块注入内容。超时会导致该会话跳过记忆注入，且不会用更小的请求重试 |
+| `fetchTimeoutMs` | `0`（1500 ms） | 其余 daemon 调用的超时：捕获（`/observe`）、`/session/end`、启动探测 |
 | `agentId` | `owner` | 写入每条记录的 id；共用同一 daemon 的机器必须一致 |
 | `recallAgentId` | `''`（不过滤） | 召回查询带的过滤 id；留空＝检索整份共享存储 |
 | `workspace.enabled` | `true` | 按工作区覆盖层的总开关 |
+| `workspace.allowEndpointOverride` | `false` | 允许工作区覆盖 `url`／`secretEnv`。关闭时运行期忽略工作区块里的这两个键（写在全局块里则始终生效） |
 | `recall.limit` | `5` | 每轮向 daemon 请求的条数 |
 | `recall.maxChars` | `4000` | 召回块的整体上限 |
 | `recall.fetchTimeoutMs` | `1200` | 单次请求超时 |

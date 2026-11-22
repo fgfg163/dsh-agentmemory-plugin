@@ -88,12 +88,20 @@ jobs:
           grep -q 'function contextMaxChars(config)' lib/index.js \
             || { echo "::error::contextMaxChars helper is missing"; exit 1; }
 
-          # Two CALL sites must exist (the capture half's /session/start and
-          # /context paths). Neither the argument nor the definition line is
-          # pinned: since 0.13.0 the value comes from the per-session config
-          # (`state.config`) instead of the apply-time `config`, so matching
-          # `(config)` failed on correct code. Count callers, not variable names.
-          callsites=$(grep 'contextMaxChars([a-zA-Z_$][^)]*)' lib/index.js | grep -vc '^function contextMaxChars' || true)
+          # The two injection sites must route through ONE shared helper.
+          #
+          # History of this check, because it has now been rewritten twice:
+          #   0.13.0 — counting `contextMaxChars(...)` worked while both call
+          #            sites passed the raw result of `safe(...)`.
+          #   0.13.3 — both sites now call `contextBlock(...)` instead, which
+          #            is the whole point of that change: `safe()` followed by
+          #            the lesson cap must not be duplicated per call site,
+          #            because that is exactly how one of them ends up
+          #            silently untrimmed.
+          #
+          # The `contextMaxChars` existence check above stays: the character
+          # ceiling it implements is still load-bearing inside contextBlock.
+          callsites=$(grep 'contextBlock(' lib/index.js | grep -vc '^function contextBlock' || true)
           echo "patched call sites: $callsites"
           test "$callsites" -eq 2 || { echo "::error::expected 2 patched call sites, found $callsites"; exit 1; }
 
@@ -102,7 +110,11 @@ jobs:
             exit 1
           fi
 
-          grep -q 'export { apply, Config, name }' lib/index.js \
+          # `trimLessons` joined the export list in 0.13.3 so the unit tests can
+          # pin the string surgery without a host. Accept either the old shape
+          # or the one that adds it, but nothing else: this check exists to
+          # notice an ACCIDENTAL change, not to forbid deliberate ones.
+          grep -Eq 'export \{ (apply, Config, name|apply, Config, name, trimLessons) \}' lib/index.js \
             || { echo "::error::plugin export shape changed"; exit 1; }
 
           # The artifact is published as-is; keep its size on record so a silent

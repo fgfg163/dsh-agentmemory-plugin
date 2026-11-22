@@ -258,3 +258,28 @@ test('ids are narrower than long numbers, matching the global rows', () => {
   assert.equal(widthOf('maxChars'), 140, 'the long ceiling matches the global one')
   assert.equal(widthOf('minConfidence'), 100, 'a 0..1 value needs the least room')
 })
+
+test('a workspace override title matches its global label', () => {
+  // Two places name every field: the `*Title` label constant used by the
+  // global row, and a literal `title` in WS_OVERRIDE_FIELDS. They drifted
+  // once — the global row read「开头 lesson 条数上限」while the override row read
+  // 「开头 lesson 条数」— because one was copied from the constant and the other
+  // typed by hand. Same field, same wording: a reader comparing the two halves
+  // of the page should not have to wonder whether they differ.
+  const table = source.slice(source.indexOf('const WS_OVERRIDE_FIELDS'), source.indexOf(']', source.indexOf('const WS_OVERRIDE_FIELDS')))
+  const entries = [...table.matchAll(/\{\s*key:\s*'([\w]+)',\s*title:\s*'([^']*)'/g)]
+  assert.ok(entries.length >= 8, `the field table parsed (found ${entries.length})`)
+  const checked = []
+  for (const [, key, title] of entries) {
+    // The label constant is `<key>Title`; recall-scoped fields live under their
+    // own names but the convention is the same.
+    const labelName = `${key}Title`
+    const hit = source.match(new RegExp(`\\b${labelName}:\\s*'([^']*)'`))
+    if (!hit) continue
+    checked.push(key)
+    assert.equal(title, hit[1], `${key}: override title must match the global label`)
+  }
+  // A test that silently checks nothing passes forever; assert coverage.
+  assert.ok(checked.length >= 4, `expected to compare several fields, compared ${checked.length}`)
+  assert.ok(checked.includes('contextMaxLessons'), 'the lesson cap is one of the compared fields')
+})

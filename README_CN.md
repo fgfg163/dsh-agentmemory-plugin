@@ -316,6 +316,7 @@ DSH 自身的配置层全部属于**某个 profile**：bundle patch、profile �
 | `url` | `''`（回落到 `AGENTMEMORY_URL`，再回落 `localhost:3111`） | Daemon 基址 |
 | `secretEnv` | `AGENTMEMORY_SECRET` | 凭据**引用**；值存在凭据存储里 |
 | `contextMaxChars` | `64000` | 每会话 `/context` 注入的字符上限 |
+| `contextMaxLessons` | `0`（不裁剪） | 注入块里 `## Lessons Learned` 的条数上限；daemon 硬编码 10 条且没有开关，故由插件裁剪已渲染的块 |
 | `agentId` | `owner` | 写入每条记录的 id；共用同一 daemon 的机器必须一致 |
 | `recallAgentId` | `''`（不过滤） | 召回查询带的过滤 id；留空＝检索整份共享存储 |
 | `workspace.enabled` | `true` | 按工作区覆盖层的总开关 |
@@ -329,6 +330,56 @@ DSH 自身的配置层全部属于**某个 profile**：bundle patch、profile �
 | `recall.minQueryChars` | `8` | 更短的提示直接不召回 |
 
 改动在下一次请求生效——插件不会因此重载。
+
+## 自己验证它
+
+包里带着测试。分两种，回答的是不同的问题。
+
+### 单元测试——不需要 daemon
+
+```bash
+node --test test/*.test.js
+```
+
+纯函数与设置存储，全部用假实现驱动。它们守住裁剪逻辑、两张键表与设置页契约的
+回归。**但它们证明不了裁剪真的到达模型**：它们直接调 `trimLessons()`，绕过了配置
+阶梯和两个注入点，而配置出错恰恰就藏在这两处。
+
+### 端到端探针——需要可用的 daemon
+
+```bash
+node test/probe-lessons.mjs 3      # 上限 3 条
+node test/probe-lessons.mjs 0      # 对照组：daemon 给多少留多少
+```
+
+它用真实的 `apply()` 跑一遍假 Cordis 上下文，触发真实的 `agent/pre-step` 钩子，
+再检查插件实际追加的那条消息。0.13.3 修掉的两个 bug，只有它抓得出来。
+
+**跑它需要什么：**
+
+| 条件 | 为什么 | 缺了会怎样 |
+|---|---|---|
+| Node.js 20+ | 用到顶层 await 与 `AbortSignal.any` | 语法报错 |
+| 依赖已装好（即装在 DSH profile 里） | `@deepseek-ai/schemastery` 来自 DSH，不是本包 | `Cannot find package '@deepseek-ai/schemastery'` |
+| 可连通的 agentmemory daemon（0.9.x） | 它查的是真实的 `/context` | 连接被拒 |
+| 存储里确有 lesson，且 `TOKEN_BUDGET` 够装下它们 | 没有该段就没有可裁的东西 | 断言失败，而不是空过 |
+| 有效的 bearer secret | 否则 daemon 一律 401 | `no agentmemory message was injected`，并附上它实际用的端点与凭据路径 |
+
+**它从哪里取值**（全部可覆盖，全部有可用默认）：
+
+| 变量 | 默认 |
+|---|---|
+| `AM_PROBE_PLUGIN` | `test/` 的上一级目录 |
+| `AM_PROBE_CREDENTIALS` | `$DSH_HOME/.credentials.yaml`，否则 `$HOME/.dsh/.credentials.yaml` |
+| `AM_PROBE_URL` | `http://localhost:3111` |
+
+凭据文件里要有插件自己读的那个 `refs.AGENTMEMORY_SECRET`——探针走的是同一套凭据
+通路，所以**插件能跑，探针的凭据就是对的**。
+
+一个值得知道的坑：存进 `<DSH_HOME>/storages/dsh-agentmemory-workspaces.json` 的值
+**优先级高于**这里的 `<cap>` 参数——它的 `url` 也高于 `AM_PROBE_URL`，因为运行中的
+插件就是这个优先级。探针每次都会打印它**实际使用的端点**，不一致会直接显示出来，
+而不是静默连错。跑出来跟参数不符时，先清掉存着的那个键。
 
 ## 关于隐私
 

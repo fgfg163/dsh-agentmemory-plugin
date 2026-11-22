@@ -332,6 +332,7 @@ write them anywhere:
 | `url` | `''` (falls back to `AGENTMEMORY_URL`, then `localhost:3111`) | Daemon base URL |
 | `secretEnv` | `AGENTMEMORY_SECRET` | Credential **reference**; the value lives in the credentials store |
 | `contextMaxChars` | `64000` | Character ceiling for the once-per-session `/context` injection |
+| `contextMaxLessons` | `0` (no trim) | Ceiling on the `## Lessons Learned` bullets in that injection; the daemon hard-codes 10 and offers no knob, so the plugin trims the rendered block |
 | `agentId` | `owner` | id written on every captured row; must match across machines sharing one daemon |
 | `recallAgentId` | `''` (no filter) | id sent to FILTER the recall query; blank searches the whole shared store |
 | `workspace.enabled` | `true` | Master switch for the per-workspace layer |
@@ -345,6 +346,61 @@ write them anywhere:
 | `recall.minQueryChars` | `8` | Shorter prompts skip recall |
 
 Changes take effect on the next request — the plugin is not reloaded.
+
+## Verifying it yourself
+
+The package ships its tests. Two kinds, and they answer different questions.
+
+### Unit tests — no daemon needed
+
+```bash
+node --test test/*.test.js
+```
+
+Pure functions and the settings store, driven with fakes. These catch regressions
+in the trimming logic, the key whitelists and the settings page contract. They do
+**not** prove the cap reaches the model: they call `trimLessons()` directly and
+therefore skip the config ladder and both injection call sites — the two places a
+misconfiguration actually hides.
+
+### The end-to-end probe — needs a live daemon
+
+```bash
+node test/probe-lessons.mjs 3      # cap of 3
+node test/probe-lessons.mjs 0      # control: keep everything the daemon sent
+```
+
+It runs the real `apply()` against a fake Cordis context, fires the real
+`agent/pre-step` hook, and inspects the message the plugin appends. That is the
+only check that would have caught the two bugs fixed in 0.13.3.
+
+**What it needs:**
+
+| Requirement | Why | If missing |
+|---|---|---|
+| Node.js 20+ | top-level await, `AbortSignal.any` | syntax error |
+| Dependencies installed (i.e. a DSH profile) | `@deepseek-ai/schemastery` comes from DSH, not from this package | `Cannot find package '@deepseek-ai/schemastery'` |
+| A reachable agentmemory daemon (0.9.x) | it queries the real `/context` | connection refused |
+| Lessons in that store, and `TOKEN_BUDGET` large enough to fit them | no section ⇒ nothing to trim | assertion failure, not a vacuous pass |
+| A valid bearer secret | the daemon answers 401 otherwise | `no agentmemory message was injected`, plus the endpoint and credential path it used |
+
+**Where it looks** (all overridable, all with sane defaults):
+
+| Variable | Default |
+|---|---|
+| `AM_PROBE_PLUGIN` | the parent directory of `test/` |
+| `AM_PROBE_CREDENTIALS` | `$DSH_HOME/.credentials.yaml`, else `$HOME/.dsh/.credentials.yaml` |
+| `AM_PROBE_URL` | `http://localhost:3111` |
+
+The credentials file needs the `refs.AGENTMEMORY_SECRET` entry the plugin itself
+reads — the probe goes through the same credentials seam, so **if the plugin
+works, the probe's credential is already correct**.
+
+One gotcha worth knowing: a value saved in `<DSH_HOME>/storages/dsh-agentmemory-workspaces.json`
+**outranks** the `<cap>` argument — and its `url` outranks `AM_PROBE_URL` too, because
+that is the precedence the running plugin uses. The probe prints the endpoint it
+actually used on every run, so a disagreement is visible rather than silent. If a
+run does not match the number you passed, clear the stored key first.
 
 ## Privacy
 

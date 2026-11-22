@@ -5,6 +5,85 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.13.3
+
+## English
+
+**Added**
+
+- **`contextMaxLessons`: a ceiling on how many `## Lessons Learned` entries the
+  session-start block may carry.** The daemon builds that list itself and
+  hard-codes ten (`mem::context`: `.slice(0, 10)` over the confidence-sorted
+  lessons), and its `/context` endpoint accepts only a whole-block token
+  `budget` — so "at most N lessons" cannot be requested from the client at
+  all. The plugin trims the rendered block instead.
+
+  `0` (the default) means "do not trim", so upgrading changes nothing. A
+  positive value keeps that many **whole bullet lines**; because the daemon has
+  already sorted by confidence, those are the most confident ones it sent.
+
+**Changed**
+
+- The setting is exposed both as a global field and as a per-workspace
+  override, and both halves of the settings page now label it identically.
+
+**Notes**
+
+- Trimming shortens what the MODEL reads; it does not save daemon token budget,
+  because the block was already selected before it reached the plugin.
+- The cap applies to both `/session/start` and `/context`, which share one
+  helper. Everything outside the lessons section is passed through
+  byte-for-byte, and input the parser does not recognise is returned untouched:
+  a cosmetic cap must never corrupt injected memory.
+
+**Fixed**
+
+- A store value filled in from `GLOBAL_DEFAULTS` no longer shadows an explicit
+  profile-row pin. `readGlobalSettings()` fills every missing key, so a field
+  with a meaningful zero looked "declared" even on a store that never mentioned
+  it, and the row value was silently discarded. The config ladder now asks the
+  raw document whether the key was declared.
+- The new key is registered in **both** key tables. `write-global` reuses the
+  workspace sanitiser, so listing it only under the global table made the
+  settings page reject it with `nothing to save: no known keys in the payload`
+  — a 400 the page swallows into a silent no-op.
+
+## 简体中文
+
+**新增**
+
+- **`contextMaxLessons`：会话开头注入块里 `## Lessons Learned` 最多保留几条。**
+  这份清单由 daemon 自己生成、条数硬编码为 10（`mem::context` 对按置信度排序
+  的列表 `.slice(0, 10)`），而它的 `/context` 只接受整块 token 预算 `budget`——
+  「最多 N 条」从客户端根本无法表达。因此改由插件裁剪已渲染好的块。
+
+  `0`（默认值）表示不裁剪，升级后行为不变。给正整数则保留该数量的**完整
+  bullet 行**；因为 daemon 已按置信度排好序，留下的正是它给出的最可信那几条。
+
+**变更**
+
+- 该设置同时提供全局字段与按工作区覆盖，设置页两处的文案现已统一。
+
+**注意**
+
+- 裁剪只缩短**模型读到**的内容，不省 daemon 的 token 预算——块在到达插件之前
+  就已被选定。
+- 该上限作用于 `/session/start` 与 `/context` 两个入口（共用同一个助手）。
+  lessons 段之外的内容逐字节原样透传，解析不了的一律原样返回：一个装饰性的
+  上限绝不能把注入的记忆弄坏。
+
+**修复**
+
+- 由 `GLOBAL_DEFAULTS` 补出来的存储值不再遮盖显式的 profile 行配置。
+  `readGlobalSettings()` 会把缺失的键全部补齐，导致一个「0 有意义」的字段在
+  从没写过的 store 上也显得「已声明」，于是行配置被静默丢弃。现在配置层直接
+  查原始文档确认该键是否真的被写过。
+- 新键在**两张**键表里都登记了。`write-global` 复用的是工作区侧的校验器，
+  只写进全局表会让设置页以 `nothing to save: no known keys in the payload`
+  拒收——而这个 400 会被页面吞成静默无操作。
+
+---
+
 # 0.13.2
 
 ## English

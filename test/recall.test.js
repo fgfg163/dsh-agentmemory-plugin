@@ -109,14 +109,196 @@ test('is a library module, not its own Cordis plugin', () => {
   assert.equal(recallInject, undefined, 'the merged file must not export a hard inject list')
 })
 
-test('registers a request-channel turn slot', () => {
+test('registers a request-channel turn slot per placement', () => {
   const harness = makeCtx()
   applyRecall(harness.ctx, {})
-  assert.equal(harness.slots.length, 1)
-  const slot = harness.slots[0]
-  assert.equal(slot.channel, 'request', 'recall must never be logged')
-  assert.equal(slot.when, 'turn', 'once per turn, not once per step')
-  assert.equal(slot.id, 'agentmemory:recall')
+  // 0.15.0: BOTH placements are registered up front. `promptInject` freezes a
+  // slot's placement at registration, so a settings-page switch cannot be
+  // honoured from inside render(); the inactive slot returns null instead.
+  assert.equal(harness.slots.length, 2)
+  const ids = harness.slots.map((slot) => slot.id).sort()
+  assert.deepEqual(ids, ['agentmemory:recall', 'agentmemory:recall:before'])
+  for (const slot of harness.slots) {
+    assert.equal(slot.channel, 'request', 'recall must never be logged')
+    assert.equal(slot.when, 'turn', 'once per turn, not once per step')
+  }
+})
+
+test('only the configured placement renders a block', async () => {
+  const fake = daemon([{ obsId: 'm1', score: 1, text: 'a remembered fact' }])
+  const harness = makeCtx()
+  applyRecall(harness.ctx, { url: 'http://d:1', placement: 'before', fetch: fake.fetchImpl })
+  const before = harness.slots.find((slot) => slot.id === 'agentmemory:recall:before')
+  const after = harness.slots.find((slot) => slot.id === 'agentmemory:recall')
+  assert.match(await before.render(renderContext('what did we decide')), /a remembered fact/)
+  assert.equal(await after.render(renderContext('what did we decide')), null)
+})
+
+test('method: search takes one hop instead of two', async () => {
+  // `/search` returns the bodies inline, so its fake must supply them on the
+  // FIRST hop — the two-hop `daemon()` fake deliberately does not.
+  const calls = []
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init.body) })
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [{ layer: 'memory', score: 1, observation: { title: '', narrative: 'single hop body', facts: [] } }],
+      }),
+    }
+  }
+  const harness = makeCtx()
+  applyRecall(harness.ctx, { url: 'http://daemon:3111', method: 'search', fetch: fetchImpl })
+  const out = await harness.slots[0].render(renderContext('how do I install the plugin'))
+  assert.match(out, /single hop body/)
+  assert.equal(calls.length, 1, 'search must not expand ids in a second hop')
+  assert.ok(calls[0].url.endsWith('/agentmemory/search'), 'method: search hits /search')
+  assert.equal(calls[0].body.format, 'full', 'bodies only come back with format: full')
+})
+
+test('includeLessons fetches lessons with a separate widened query', async () => {
+  // The main query pins `targetLayer: 'memory'`, and the daemon omits
+  // `lessons` from such a reply (verified 2026-11-25). Lessons therefore come
+  // from a SECOND request whose layer is widened to `all`, and only that
+  // response's `lessons` array is used — its `results` are observations and
+  // must not leak into the block.
+  const calls = []
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push({ url, body })
+    if (Array.isArray(body.expandIds)) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({ results: [{ obsId: 'm1', layer: 'memory', observation: { title: '', narrative: 'a remembered fact', facts: [] } }] }),
+      }
+    }
+    if (body.targetLayer === 'all') {
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          results: [{ layer: 'observation', score: 1, observation: { title: 'pwsh', narrative: 'raw tool json', facts: [] } }],
+          lessons: [{ content: 'a learned rule', confidence: 0.9 }],
+        }),
+      }
+    }
+    return { ok: true, status: 200, json: async () => ({ results: [{ obsId: 'm1', score: 1, layer: 'memory' }] }) }
+  }
+  const harness = makeCtx()
+  applyRecall(harness.ctx, { url: 'http://d:1', includeLessons: true, fetch: fetchImpl })
+  const out = await harness.slots[0].render(renderContext('what did we learn'))
+
+  assert.match(out, /a learned rule/, 'the lesson reaches the block')
+  assert.match(out, /a remembered fact/, 'the memory is still there')
+
+  const mainQuery = calls.find((call) => call.body.query !== undefined && call.body.targetLayer !== 'all')
+  assert.equal(mainQuery.body.includeLessons, undefined, 'the memory query does not ask for lessons')
+  assert.equal(mainQuery.body.targetLayer, 'memory', 'the memory query keeps its narrow scope')
+
+  const lessonQuery = calls.find((call) => call.body.targetLayer === 'all')
+  assert.ok(lessonQuery, 'a widened query is issued for the lessons')
+  assert.equal(lessonQuery.body.includeLessons, true)
+
+  assert.ok(!calls.some((call) => call.url.endsWith('/lessons/search')), 'the dedicated endpoint is not used')
+  // The widened query's observation result must be discarded.
+  assert.ok(!out.includes('raw tool json'), 'observations from the lesson query are ignored')
+})
+
+test('a failing lesson query still returns the memories', async () => {
+  // Lessons are an extra; losing them must not cost the turn its recall.
+  let seq = 0
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body)
+    seq += 1
+    if (body.targetLayer === 'all') throw new Error('boom')
+    if (Array.isArray(body.expandIds)) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({ results: [{ obsId: 'm1', layer: 'memory', observation: { title: '', narrative: 'a remembered fact', facts: [] } }] }),
+      }
+    }
+    return { ok: true, status: 200, json: async () => ({ results: [{ obsId: 'm1', score: 1, layer: 'memory' }] }) }
+  }
+  const harness = makeCtx()
+  applyRecall(harness.ctx, { url: 'http://d:1', includeLessons: true, fetch: fetchImpl })
+  const out = await harness.slots[0].render(renderContext('what did we learn'))
+  assert.match(out, /a remembered fact/)
+  assert.ok(harness.warnings.some((message) => message.includes('lessons')), 'the failure is logged')
+})
+
+test('method: search ignores includeLessons and warns once', async () => {
+  // `/search` returns no lessons at all, so the switch cannot apply there. The
+  // point of the test is that this is a WARNING, not silence: a user who picks
+  // search + lessons should be able to see why nothing arrived.
+  const warnings = []
+  const calls = []
+  const harness = makeCtx()
+  harness.ctx.logger.warn = (message) => warnings.push(message)
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init.body) })
+    return { ok: true, status: 200, json: async () => ({ results: [] }) }
+  }
+  applyRecall(harness.ctx, { url: 'http://d:1', method: 'search', includeLessons: true, fetch: fetchImpl })
+  await harness.slots[0].render(renderContext('a prompt with no hits at all'))
+  await harness.slots[0].render(renderContext('a second prompt with no hits'))
+
+  assert.ok(calls.every((call) => call.url.endsWith('/agentmemory/search')))
+  assert.ok(!calls.some((call) => call.url.endsWith('/lessons/search')), 'search never calls the lessons endpoint')
+  const lessonWarnings = warnings.filter((message) => message.includes('returns no lessons'))
+  assert.equal(lessonWarnings.length, 1, 'warned once per process, not once per turn')
+})
+
+test('withoutSlot: off does nothing and inject writes a logged message', async () => {
+  /** A context with the event bus but NO promptInject service. */
+  const observeOnly = (sink) => ({
+    logger: { warn() {} },
+    effect: (factory) => factory(),
+    get: () => undefined,
+    inject(services, callback) {
+      // No slot bundle in this profile: the optional service never appears.
+      assert.ok(services.includes('promptInject'))
+      void callback
+    },
+    on(event, handler) {
+      sink.push({ event, handler })
+    },
+  })
+
+  const listeners = []
+  applyRecall(observeOnly(listeners), {
+    url: 'http://d:1',
+    fetch: async () => ({ ok: true, status: 200, json: async () => ({ results: [] }) }),
+  })
+
+  const fallback = listeners.find((entry) => entry.event === 'agent/pre-step')
+  assert.ok(fallback, 'the no-slot fallback must register a pre-step hook')
+
+  // 'off': the log stays clean, so the decision passes through untouched.
+  const off = await fallback.handler(
+    { agent: { session: { id: 's1', header: { cwd: 'E:\\gem12\\DSH' } } } },
+    async () => decisionWith('a prompt long enough to search for'),
+  )
+  assert.equal(off.messages.length, 1, 'withoutSlot: off must not append anything')
+
+  const fake = daemon([{ obsId: 'm1', score: 1, text: 'fallback memory' }])
+  const injected = []
+  applyRecall(observeOnly(injected), { url: 'http://d:1', withoutSlot: 'inject', fetch: fake.fetchImpl })
+  const on = await injected.find((entry) => entry.event === 'agent/pre-step').handler(
+    { agent: { session: { id: 's1', header: { cwd: 'E:\\gem12\\DSH' } } }, step: 1 },
+    async () => decisionWith('a prompt long enough to search for'),
+  )
+  assert.equal(on.messages.length, 2)
+  assert.equal(on.messages[1].source.kind, 'agentmemory')
+  assert.match(on.messages[1].content[0].text, /fallback memory/)
+
+  // A tool continuation inside the SAME turn must not append a second copy.
+  // The slot channel gets this from `when: 'turn'`; this hook has to enforce it
+  // itself, or one turn with five steps grows the history five times.
+  const later = await injected.find((entry) => entry.event === 'agent/pre-step').handler(
+    { agent: { session: { id: 's1', header: { cwd: 'E:\\gem12\\DSH' } } }, step: 3 },
+    async () => decisionWith('a prompt long enough to search for'),
+  )
+  assert.equal(later.messages.length, 1, 'only the first step of a turn injects')
 })
 
 test('enabled: false registers nothing', () => {

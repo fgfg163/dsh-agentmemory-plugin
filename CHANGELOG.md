@@ -5,6 +5,158 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.15.0
+
+## English
+
+**Added**
+
+- **`recall.entryMaxChars` is now a real setting.** The recall half has always
+  clipped each entry to a built-in 400 characters, but the field was never
+  declared in the host schema, never listed in the settings store and never
+  rendered in the settings page, so every install silently used 400. It now
+  appears in both the global form and the per-workspace overrides.
+
+  The ceiling applies to the **whole rendered line**, title included. A memory
+  title is often its own opening sentence, so clipping only the body produced
+  entries several times the configured budget — measured against the live
+  daemon, `entryMaxChars: 120` yielded 240-character lines.
+
+- **`recall.method` chooses the daemon endpoint.** `smart-search` (default) is
+  the historical two-hop path: `{query}` returns `{obsId, score}` only, then
+  `{expandIds}` fetches the bodies. `search` is one hop and returns the bodies
+  inline with `format: 'full'`. Both accept `targetLayer` / `agentId` / `limit`,
+  so the query scope is unchanged; only the round-trip count differs.
+
+- **`recall.placement` puts the block before or after the user's prompt.**
+  `after` (default) appends behind every existing message — cheapest for the
+  provider prefix cache. `before` lands ahead of the prompt.
+
+  `promptInject` freezes a slot's `placement` at registration, so the switch
+  cannot be honoured from inside `render()`. Both placements are registered up
+  front (`agentmemory:recall` / `agentmemory:recall:before`) and the inactive
+  one returns `null`, which makes switching instant with no restart.
+
+- **`recall.withoutSlot` decides the behaviour when
+  `@fgfg163/dsh-prompt-slot` is not installed.** The recall half normally rides
+  the slot service's `request` channel, which is model-visible but never
+  logged. Without that bundle the only remaining place is a `user/message` in
+  `decision.messages`, which IS logged and stays in the history. `inject`
+  (default) keeps the feature working at that cost; `off` keeps the log clean
+  and drops per-turn recall in such a profile.
+
+- **`includeLessons` actually works on `smart-search` now.** The old code passed
+  `includeLessons` to `/smart-search` and then never read the `lessons` array
+  that came back, so the switch did nothing at all.
+
+  Wiring it up naively would still not have worked: the main query pins
+  `targetLayer: 'memory'` (so raw tool traffic cannot crowd out remembered
+  conclusions), and the daemon omits `lessons` entirely from such a reply.
+  Verified 2026-11-25 across three shapes — no `targetLayer` returns lessons,
+  `targetLayer: 'memory'` returns none, `targetLayer: 'all'` returns lessons but
+  every result becomes an observation. There is no "memory plus lessons only"
+  layer; `layers` / `includeLayers` are ignored by the daemon and behave as
+  `all`.
+
+  Lessons therefore ride a **separate** `/smart-search` query widened to
+  `targetLayer: 'all'`, of which only the `lessons` array is read. The main
+  query keeps its `memory` scope, so recall quality is unchanged. A failure of
+  that second request is logged and does not cost the turn its memories.
+
+  **Only `smart-search` has lessons.** `/search` returns no `lessons` key and
+  accepts no `includeLessons`. The settings page disables the checkbox in that
+  combination and says why, and the plugin emits one warning per process.
+
+  Note the daemon truncates lesson bodies to about 241 characters with an
+  ellipsis. That is the daemon's own summary format, not this plugin.
+
+**Fixed**
+
+- **`registerBefore` / `registerAfter` are probed, not assumed.**
+  `@fgfg163/dsh-prompt-slot` only gained them in 0.3.0; an older profile has
+  just `register`. Calling them unconditionally threw a `TypeError` that took
+  the entire recall half down, so the capability is now detected and an older
+  service still gets a correct registration.
+
+- **Version comments corrected.** A batch of code shipped in 0.14.0 was
+  annotated `0.15.0` in `config.js`, `index.js` and `workspace-store.js`.
+  Those annotations now read `0.14.0`, so `0.15.0` means this release only.
+
+**Note**
+
+- `/search` lets the daemon apply its own token budget to the batch, so
+  `limit` caps what is asked for rather than guaranteeing that many results.
+  `/smart-search` still controls the count exactly.
+
+## 简体中文
+
+**新增**
+
+- **`recall.entryMaxChars` 成为真正的设置项。** 召回半边一直把单条结果截到内置
+  400 字符，但这个字段既没在宿主 schema 里声明，也没进设置存储、没在设置页渲染，
+  所以所有安装都在静默使用 400。现在全局表单和按工作区覆盖里都能改。
+
+  上限作用于**整条渲染出来的行**，包含标题。记忆的标题常常就是它自己的第一句话，
+  只截正文会让单条远超设定值——对真实 daemon 实测，`entryMaxChars: 120` 产出了
+  240 字符的行。
+
+- **`recall.method` 选择 daemon 端点。** `smart-search`（默认）是历史上的两跳：
+  `{query}` 只回 `{obsId, score}`，再用 `{expandIds}` 取正文。`search` 一跳，
+  正文随 `format: 'full'` 一起返回。两者都接受 `targetLayer` / `agentId` /
+  `limit`，查询范围不变，只是往返次数不同。
+
+- **`recall.placement` 决定注入块在提问前面还是后面。** `after`（默认）追加在
+  所有已有消息之后，对 provider 前缀缓存最省；`before` 插在提问前面。
+
+  `promptInject` 在注册时就把 slot 的 `placement` 冻死了，所以这个开关没法在
+  `render()` 里判断。两个位置都预先注册（`agentmemory:recall` /
+  `agentmemory:recall:before`），不生效的那个返回 `null`，因此切换是瞬时的、
+  不用重启。
+
+- **`recall.withoutSlot` 决定没装 `@fgfg163/dsh-prompt-slot` 时的行为。**
+  召回半边平时走注入插件的 `request` 通道：模型看得见、但不进日志。没有那个插件时，
+  唯一剩下的位置是 `decision.messages` 里的一条 `user` 消息，它会**进日志、永久留在
+  历史里**。`inject`（默认）以这个代价让功能继续可用；`off` 保持日志干净，在这种
+  配置下直接不做每轮召回。
+
+- **`includeLessons` 在 `smart-search` 下真正生效了。** 旧代码把
+  `includeLessons` 传给 `/smart-search`，却从没读过返回里的 `lessons` 数组，
+  所以这个开关完全没作用。
+
+  而且光把它接上也不行：主查询固定传 `targetLayer: 'memory'`（避免原始 tool
+  输出挤占记忆结论），daemon 在这种请求下**完全不返回** `lessons`。2026-11-25
+  实测三种形态——不传 `targetLayer` 有 lessons；传 `memory` 没有；传 `all` 有
+  lessons 但每条结果都变成 observation。不存在「只取 memory + lessons」的层，
+  `layers` / `includeLayers` 会被 daemon 忽略、行为等同 `all`。
+
+  所以 lessons 走**单独一次** `/smart-search`，把层级放宽到
+  `targetLayer: 'all'`，只读其中的 `lessons` 数组。主查询保持 `memory` 范围，
+  召回质量不受影响。第二次请求失败只记日志，不会让本轮丢掉记忆。
+
+  **只有 `smart-search` 有 lessons。** `/search` 不返回 `lessons` 键，也不接受
+  `includeLessons`。设置页在该组合下会把勾选框置灰并写明原因，插件侧每个进程
+  只警告一次。
+
+  另外，daemon 会把 lesson 正文截到约 241 字符并加省略号，那是 daemon 自己的
+  摘要格式，不是本插件做的。
+
+**修复**
+
+- **`registerBefore` / `registerAfter` 改为能力探测，不再假定存在。**
+  `@fgfg163/dsh-prompt-slot` 到 0.3.0 才有这两个方法，更老的版本只有 `register`。
+  无条件调用会抛 `TypeError`，把整个召回半边带崩，所以现在先探测，老服务也仍能拿到
+  一次正确的注册。
+
+- **纠正版本号注释。** 有一批随 0.14.0 发布的代码在 `config.js`、`index.js` 和
+  `workspace-store.js` 里标成了 `0.15.0`，现在改回 `0.14.0`，`0.15.0` 只指本次发布。
+
+**注意**
+
+- `/search` 由 daemon 自己对该批结果套 token 预算，所以 `limit` 只是「要多少条」，
+  不保证真能拿到这么多。`/smart-search` 仍然能精确控制条数。
+
+---
+
 # 0.14.0
 
 ## English

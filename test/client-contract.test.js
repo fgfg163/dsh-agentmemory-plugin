@@ -267,21 +267,39 @@ test('a workspace override title matches its global label', () => {
   // typed by hand. Same field, same wording: a reader comparing the two halves
   // of the page should not have to wonder whether they differ.
   const table = source.slice(source.indexOf('const WS_OVERRIDE_FIELDS'), source.indexOf(']', source.indexOf('const WS_OVERRIDE_FIELDS')))
-  const entries = [...table.matchAll(/\{\s*key:\s*'([\w]+)',\s*title:\s*'([^']*)'/g)]
+  const entries = [...table.matchAll(/\{\s*key:\s*'([\w]+)',\s*title:\s*'([^']*)',\s*kind:\s*'[\w]+',\s*inRecall:\s*(true|false)/g)]
   assert.ok(entries.length >= 8, `the field table parsed (found ${entries.length})`)
+
+  /**
+   * The global label constant for one override field.
+   *
+   * Usually `<key>Title`, but `fetchTimeoutMs` is declared at BOTH levels —
+   * `config.fetchTimeoutMs` (capture/other calls) and `config.recall
+   * .fetchTimeoutMs` (retrieval) — and their label constants are named
+   * differently: the top-level one is `fetchTimeoutTitle` (historically without
+   * `Ms`), the recall one is `fetchTimeoutMsTitle`. A blind `${key}Title`
+   * lookup over that key therefore compared a top-level override row against
+   * the *recall* row's wording, which is a different field that happens to
+   * share a name.
+   */
+  const labelConstantFor = (key, inRecall) => {
+    if (key === 'fetchTimeoutMs') return inRecall === 'true' ? 'fetchTimeoutMsTitle' : 'fetchTimeoutTitle'
+    return `${key}Title`
+  }
+
   const checked = []
-  for (const [, key, title] of entries) {
-    // The label constant is `<key>Title`; recall-scoped fields live under their
-    // own names but the convention is the same.
-    const labelName = `${key}Title`
+  for (const [, key, title, inRecall] of entries) {
+    const labelName = labelConstantFor(key, inRecall)
     const hit = source.match(new RegExp(`\\b${labelName}:\\s*'([^']*)'`))
     if (!hit) continue
     checked.push(key)
-    assert.equal(title, hit[1], `${key}: override title must match the global label`)
+    assert.equal(title, hit[1], `${key}: override title must match the global label (${labelName})`)
   }
   // A test that silently checks nothing passes forever; assert coverage.
   assert.ok(checked.length >= 4, `expected to compare several fields, compared ${checked.length}`)
   assert.ok(checked.includes('contextMaxLessons'), 'the lesson cap is one of the compared fields')
+  // The shared-name field must still be compared, against the right constant.
+  assert.ok(checked.includes('fetchTimeoutMs'), 'the fetch timeout is one of the compared fields')
 })
 
 /*

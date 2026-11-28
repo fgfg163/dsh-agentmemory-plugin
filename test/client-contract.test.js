@@ -343,3 +343,129 @@ test('a stored block with no matching workspace is labelled as such', () => {
   assert.ok(choices.includes('row.registered === false'), 'the unregistered case is branched on')
   assert.ok(choices.includes('labels.wsUnregisteredMark'), 'and it is marked in the label')
 })
+
+/*
+ * 0.16.0 — the state slot.
+ *
+ * The field is new and its whole value proposition is "empty means off", which
+ * is exactly the shape a form tends to break: a `||` default turns a deliberate
+ * blank into something non-empty, and a missing row leaves the setting visible
+ * only through the file. These assertions pin both halves.
+ */
+test('the state-slot field exists and says that blank turns it off', () => {
+  assert.ok(source.includes("id: 'am-state-slot'"), 'the global row exists')
+  assert.ok(source.includes('labels.stateSlotTitle'), 'it is labelled')
+  assert.ok(source.includes("placeholder: '留空＝关闭'"), 'blank is explained in the field itself')
+  assert.ok(source.includes("setPath(['recall', 'stateSlot']"), 'it is editable on the recall path')
+})
+
+test('an empty state slot is not replaced by a default', () => {
+  // `stateSlot: ''` MEANS "off". Any `|| 'something'` here would silently
+  // re-enable the feature for everyone who cleared the field.
+  assert.ok(
+    source.includes("typeof value.recall?.stateSlot === 'string' ? value.recall.stateSlot : ''"),
+    'the accepted-shape sanitiser passes the empty string through',
+  )
+  assert.ok(!/stateSlot:\s*typeof[^,]*\|\|/.test(source), 'no fallback default is applied to it')
+})
+
+test('the state slot is overridable per workspace', () => {
+  const table = source.slice(source.indexOf('const WS_OVERRIDE_FIELDS'), source.indexOf(']', source.indexOf('const WS_OVERRIDE_FIELDS')))
+  assert.match(table, /key: 'stateSlot'/, 'the override table carries it')
+})
+
+/*
+ * 0.16.0 — the state slot's mode, and its own settings group.
+ *
+ * Two things are worth pinning: the three values reach the form (a missing
+ * option silently makes a mode unreachable), and the state slot is NOT a
+ * sub-row of the recall group — the owner asked for two separate options.
+ */
+test('the state slot mode offers exactly the three documented choices', () => {
+  assert.ok(source.includes("id: 'am-state-slot-mode'"), 'the select exists')
+  assert.ok(source.includes('labels.stateSlotModeTitle'), 'it is labelled')
+  assert.ok(source.includes("setPath(['recall', 'stateSlotMode']"), 'it is editable on the recall path')
+
+  // Scope to the state-slot select: the recall "注入方式" select now also uses
+  // the `slot-*` values, so scanning the whole bundle would mix the two.
+  const at = source.indexOf("id: 'am-state-slot-mode', className")
+  assert.ok(at > 0, 'the state-slot select is locatable')
+  // End at the NEXT Row: an option line contains no `]))`, so slicing on that
+  // truncated the block and silently dropped every option.
+  const nxt = source.indexOf('react.createElement(Row', at)
+  const block = source.slice(at, nxt > 0 ? nxt : source.length)
+  const options = [...block.matchAll(/value: '(history|slot-before|slot-after)'/g)].map((m) => m[1])
+  assert.deepEqual(options, ['history', 'slot-before', 'slot-after'], 'the three modes are rendered in order')
+
+  // An untouched install has no stored key and must land on the default.
+  assert.match(
+    source,
+    /stateSlotMode:\s*typeof value\.recall\?\.stateSlotMode === 'string' \? value\.recall\.stateSlotMode : 'history'/,
+    'an absent value defaults to history',
+  )
+})
+
+test('the state slot has its own group, not a row inside per-turn recall', () => {
+  // The owner's request: "slot 和记忆召回分开两个选项". A row nested inside the
+  // recall group reads as another retrieval parameter.
+  const start = source.indexOf("labels.recallTitle")
+  const slotGroup = source.indexOf("className: 'fgf-group-title fgf-group-title-strong' }, labels.stateSlotTitle")
+  assert.ok(start >= 0 && slotGroup > start, 'the state group comes after the recall group opens')
+  // Its rows must sit after the heading, and no recall row may sit between the
+  // heading and its first field.
+  const between = source.slice(slotGroup, source.indexOf("id: 'am-state-slot'", slotGroup))
+  assert.ok(!between.includes('am-limit'), 'no recall row is nested under the state heading')
+})
+
+test('the missing-slot-bundle warning is explained, not silent', () => {
+  // Without the bundle a `slot-*` mode falls back to the history. The select
+  // keeps showing the chosen value, so the page has to say why.
+  assert.ok(source.includes('labels.stateSlotModeNoSlot'), 'the notice is rendered')
+  assert.ok(source.includes('slotAvailable === false'), 'and it is gated on the Host report')
+})
+
+test('the state slot mode is overridable per workspace', () => {
+  const table = source.slice(source.indexOf('const WS_OVERRIDE_FIELDS'), source.indexOf(']', source.indexOf('const WS_OVERRIDE_FIELDS')))
+  assert.match(table, /key: 'stateSlotMode'/)
+  assert.ok(!table.includes("key: 'stateSlotHistory'"), 'the 0.16.0 boolean is gone from the table')
+})
+
+/*
+ * 0.16.0 — recall's "注入方式", the same shape as the state slot's mode.
+ *
+ * `placement` + `withoutSlot` were two dropdowns for one decision and could
+ * contradict each other. They are now one select with three values.
+ */
+test('recall injection is one select with the three modes', () => {
+  assert.ok(source.includes("id: 'am-mode'"), 'the select exists')
+  assert.ok(source.includes('labels.modeTitle'), 'it is labelled')
+  assert.ok(source.includes("setPath(['recall', 'mode']"), 'it is editable on the recall path')
+
+  const at = source.indexOf("id: 'am-mode', className")
+  const nxt = source.indexOf('react.createElement(Row', at)
+  const block = source.slice(at, nxt > 0 ? nxt : source.length)
+  const options = [...block.matchAll(/value: '(slot-before|slot-after|off)'/g)].map((m) => m[1])
+  assert.deepEqual(options, ['slot-before', 'slot-after', 'off'], 'three modes, in order')
+
+  // The two old dropdowns must be gone, not merely hidden: a live `placement`
+  // control would contradict the mode select.
+  assert.ok(!source.includes("id: 'am-placement'"), 'the placement select is removed')
+  assert.ok(!source.includes("id: 'am-without-slot'"), 'the withoutSlot select is removed')
+  assert.ok(!source.includes("setPath(['recall', 'placement']"), 'nothing still writes placement')
+  assert.ok(!source.includes("setPath(['recall', 'withoutSlot']"), 'nothing still writes withoutSlot')
+})
+
+test('an absent recall mode defaults to slot-after', () => {
+  assert.match(
+    source,
+    /mode: typeof value\.recall\?\.mode === 'string' \? value\.recall\.mode : 'slot-after'/,
+    'the default matches the old behaviour (placement after + inject)',
+  )
+})
+
+test('the recall mode is overridable per workspace', () => {
+  const table = source.slice(source.indexOf('const WS_OVERRIDE_FIELDS'), source.indexOf(']', source.indexOf('const WS_OVERRIDE_FIELDS')))
+  assert.match(table, /key: 'mode'/)
+  assert.ok(!/key: 'placement'/.test(table), 'the old placement key is gone from the override table')
+  assert.ok(!/key: 'withoutSlot'/.test(table), 'the old withoutSlot key is gone too')
+})

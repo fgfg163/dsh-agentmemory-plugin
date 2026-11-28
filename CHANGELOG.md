@@ -5,6 +5,149 @@ All notable changes to `@fgfg163/dsh-agentmemory-plugin` are recorded here.
 
 ---
 
+# 0.16.0
+
+## English
+
+**Added — per-turn agent state slot**
+
+`recall.stateSlot` names an agentmemory slot whose content is injected as the
+agent's current state — a small, human-edited "what I am doing right now" block.
+Read once per turn on the turn's first step.
+
+`recall.stateSlotMode` decides where it lands:
+
+| `stateSlotMode` | channel | position | re-sent |
+|---|---|---|---|
+| `history` (default) | logged `user/message` | before the prompt | only when the content changes |
+| `slot-before` | `dsh-prompt-slot`, unlogged | before the prompt | every turn |
+| `slot-after` | `dsh-prompt-slot`, unlogged | after every message | every turn |
+
+The de-duplication difference is deliberate, not an inconsistency. A logged
+message stays in the history, so re-appending an unchanged block only grows the
+log and the token bill. Request-channel text is built fresh per turn and never
+logged, so an unchanged block that is not re-sent is simply **absent** —
+de-duplicating there would make the state visible only on the turn it changed.
+
+A `slot-*` mode in a profile without `@fgfg163/dsh-prompt-slot` falls back to
+the history channel: the bundle is an optional peer, and a configured state slot
+must not silently stop working.
+
+Both channels register at apply time and each renders `null` while the other is
+active, so flipping the setting takes effect on the next turn with no restart.
+
+Cost control: the daemon is read once per **turn** (not per step), a failure puts
+a 30-second backoff in place, and a compaction clears the record so the state is
+re-injected rather than going stale after its message is summarised away. A
+malformed label is warned about once per process and never fetched. The injected
+body is capped at 8000 characters with an explicit truncation marker.
+
+**Changed — recall's injection position and no-slot behaviour are one select**
+
+`recall.placement` and `recall.withoutSlot` were two dropdowns describing a
+single decision, and they could contradict each other: `withoutSlot: 'off'` made
+`placement` meaningless. They are replaced by `recall.mode`:
+
+| `recall.mode` | placement | without the slot bundle |
+|---|---|---|
+| `slot-before` | before the prompt | falls back to a logged message |
+| `slot-after` (default) | after every message | falls back to a logged message |
+| `off` | — | not injected at all |
+
+`slot-before` reads more naturally to the model but perturbs the provider prefix
+cache; `slot-after` is the cheaper default. The legacy keys are still declared,
+still stored and still read, so an existing store does not change behaviour on
+upgrade.
+
+**Fixed — the state block could be injected twice**
+
+Both placements are registered (necessary: `promptInject` freezes `placement` at
+registration), and each rendered the content whenever the request channel was
+active. Each now checks the configured one, so exactly one block is sent per
+turn.
+
+**Fixed — a narrow settings dialog squeezed rows into unreadable columns**
+
+`.fgf-control` could not shrink and `.fgf-row-text` had `min-width: 0`, so in a
+narrow dialog the title wrapped to one character per line while the input
+overflowed the panel. The rows now keep a readable text column, inputs cap at
+100% width, and below 560px each row stacks: label on its own line, control
+taking the full width underneath.
+
+**Notes**
+
+- The state slot has its own settings group rather than sitting among the recall
+  parameters, and its mode is a three-way select.
+- The settings page warns when `@fgfg163/dsh-prompt-slot` is not mounted, since
+  a `slot-*` mode then falls back to the history and the select would otherwise
+  keep showing a value the runtime is not honouring.
+- `stateSlot`, `stateSlotMode` and `recall.mode` are all overridable per
+  workspace.
+
+## 简体中文
+
+**新增 —— 每轮的 agent 状态槽**
+
+`recall.stateSlot` 指定一个 agentmemory 槽位，把其内容作为「agent 当前状态」注入——
+一小块人工维护的「我现在在做什么」。每轮首步读一次。
+
+`recall.stateSlotMode` 决定它落在哪：
+
+| `stateSlotMode` | 通道 | 位置 | 重新注入 |
+|---|---|---|---|
+| `history`（默认） | 写会话消息 | 用户输入之前 | 只在内容变化时 |
+| `slot-before` | `dsh-prompt-slot`，不写日志 | 用户输入之前 | 每轮都发 |
+| `slot-after` | `dsh-prompt-slot`，不写日志 | 所有消息之后 | 每轮都发 |
+
+这个去重差异是有意为之，不是自相矛盾。写进历史的消息会一直留存，再追加一份没变的
+只会让日志和 token 白涨；而请求通道是每轮现渲染、从不留存的，内容没变又没重发，
+那一轮就是**完全看不到**——在那边做去重，等于状态只在变更的那一轮有效。
+
+没装 `@fgfg163/dsh-prompt-slot` 时，`slot-*` 模式会退回写历史：它是可选依赖，
+一个已经配好的状态槽不能因此悄悄失效。
+
+两条通道都在 apply 时注册，各自在对方生效时返回 `null`，所以拨开关下一轮就生效，
+不需要重启宿主。
+
+成本控制：每**轮**只读一次 daemon（不是每步），失败后 30 秒退避，发生压缩时清掉
+缓存记录以便重新注入（否则那条消息被摘要掉之后状态会静默失效）。槽位名不合法只警告
+一次、永远不发请求。注入正文上限 8000 字符，超出带显式截断标记。
+
+**变更 —— 召回的注入位置与「未装插件」行为合并成一个下拉**
+
+`recall.placement` 与 `recall.withoutSlot` 本来描述的是同一个决定，而且能互相矛盾：
+选了 `withoutSlot: 'off'` 之后 `placement` 就毫无意义。现在换成 `recall.mode`：
+
+| `recall.mode` | 位置 | 没装 slot 插件时 |
+|---|---|---|
+| `slot-before` | 用户输入之前 | 退回写历史消息 |
+| `slot-after`（默认） | 所有消息之后 | 退回写历史消息 |
+| `off` | — | 完全不注入 |
+
+请求前读起来更自然，但会扰动 provider 的前缀缓存；所有消息之后（默认）缓存最省。
+旧键仍然声明、仍然保存、仍然会被读，所以已有配置升级后行为不变。
+
+**修复 —— 状态块可能被注入两次**
+
+两个 placement 都注册了（这是必须的：`promptInject` 在注册时就把 `placement` 冻死），
+而在请求通道生效时两边都渲染了内容。现在各自只认配置的那一档，一轮只发一份。
+
+**修复 —— 窄屏下设置行被挤成没法读的窄条**
+
+`.fgf-control` 不肯收缩，`.fgf-row-text` 又是 `min-width: 0`，于是窄弹窗里标题被压成
+一个字一行、输入框还溢出面板。现在文字列保留可读宽度、输入框最多占满 100%，
+560px 以下整行折成上下两段：标签独占一行，控件在下方拉满宽度。
+
+**注意**
+
+- 状态槽单独成组，不再混在召回参数里；它的模式是三选一。
+- 没装 `@fgfg163/dsh-prompt-slot` 时设置页会提示：那种情况下 `slot-*` 会退回写历史，
+  否则下拉框会一直显示一个运行时并不认的值。
+- `stateSlot`、`stateSlotMode`、`recall.mode` 都支持工作区级覆盖。
+
+---
+
+
 # 0.15.0
 
 ## English

@@ -345,6 +345,7 @@ daemon，或同一个 daemon 但用另一份 bearer。这两行现在会出现�
 | `recallAgentId` | `''`（不过滤） | 召回查询带的过滤 id；留空＝检索整份共享存储 |
 | `workspace.enabled` | `true` | 按工作区覆盖层的总开关 |
 | `workspace.allowEndpointOverride` | `false` | 允许工作区覆盖 `url`／`secretEnv`。关闭时运行期忽略工作区块里的这两个键（写在全局块里则始终生效） |
+| `recall.mode` | `slot-after` | 召回块落在哪。`slot-before` / `slot-after` 走 `dsh-prompt-slot` 请求通道（不写日志），未装该插件时退回写历史消息；`off` 关闭每轮召回。取代 0.16.0 的 `placement` + `withoutSlot`，那两项仍会被读 |
 | `recall.limit` | `5` | 每轮向 daemon 请求的条数 |
 | `recall.maxChars` | `4000` | 召回块的整体上限 |
 | `recall.fetchTimeoutMs` | `1200` | 单次请求超时 |
@@ -353,6 +354,8 @@ daemon，或同一个 daemon 但用另一份 bearer。这两行现在会出现�
 | `recall.includeLessons` | `false` | 是否附带 lessons |
 | `recall.tailRatio` | `0.95` | 单批内的相对尾截 |
 | `recall.minQueryChars` | `8` | 更短的提示直接不召回 |
+| `recall.stateSlot` | `''`（关闭） | agentmemory 槽位名，内容作为「agent 当前状态」注入。每轮读一次。留空关闭整条链路。`^[a-z][a-z0-9_]{0,63}$` |
+| `recall.stateSlotMode` | `history` | 状态槽落在哪。`history`＝写成会话消息、放在提问前，**只在内容变化时**追加；`slot-before` / `slot-after`＝走 `dsh-prompt-slot` 请求通道，不写日志但**每轮都要重发**，因为没有留存、不重发就等于不存在。未装该插件时 `slot-*` 会自动退回 `history` |
 
 改动在下一次请求生效——插件不会因此重载。
 

@@ -368,6 +368,7 @@ write them anywhere:
 | `recallAgentId` | `''` (no filter) | id sent to FILTER the recall query; blank searches the whole shared store |
 | `workspace.enabled` | `true` | Master switch for the per-workspace layer |
 | `workspace.allowEndpointOverride` | `false` | Allow a workspace to override `url`/`secretEnv`. While off the runtime ignores those two keys in a workspace block (they still apply when set globally) |
+| `recall.mode` | `slot-after` | Where the recalled block lands. `slot-before` / `slot-after` ride `dsh-prompt-slot`'s request channel (unlogged) and fall back to a logged message when that bundle is absent. `off` disables per-turn recall. Replaces the 0.16.0 `placement` + `withoutSlot` pair, which are still read |
 | `recall.limit` | `5` | Results requested from the daemon per turn |
 | `recall.maxChars` | `4000` | Ceiling for the composed recall block |
 | `recall.fetchTimeoutMs` | `1200` | Per-request timeout |
@@ -376,6 +377,8 @@ write them anywhere:
 | `recall.includeLessons` | `false` | Also prepend lessons |
 | `recall.tailRatio` | `0.95` | Relative tail cut inside one batch |
 | `recall.minQueryChars` | `8` | Shorter prompts skip recall |
+| `recall.stateSlot` | `''` (off) | agentmemory slot label whose content is injected as the agent's current state. Read once per turn. Empty disables the whole path. `^[a-z][a-z0-9_]{0,63}$` |
+| `recall.stateSlotMode` | `history` | Where the state slot lands. `history` = a logged message before the prompt, re-appended **only when the content changes**. `slot-before` / `slot-after` = `dsh-prompt-slot`'s request channel, never logged but re-sent **every turn**, because unlogged text that is not re-rendered is absent. Without that bundle the `slot-*` modes fall back to `history` |
 
 Changes take effect on the next request — the plugin is not reloaded.
 

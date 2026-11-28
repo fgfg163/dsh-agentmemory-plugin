@@ -579,3 +579,120 @@ test('a getter secret is resolved per request', async () => {
 })
 
 //#endregion
+
+/*
+ * 0.16.0 - one `mode` replaces the `placement` + `withoutSlot` pair.
+ *
+ * The mapping has to be exact: an existing store has neither key set, and the
+ * legacy keys must keep meaning what they meant, or upgrading silently changes
+ * where every user's recalled block lands.
+ */
+test('resolveRecallMode: an explicit mode wins', () => {
+  const { resolveRecallMode } = recallModule
+  assert.equal(resolveRecallMode('slot-before', 'after', 'inject'), 'slot-before')
+  assert.equal(resolveRecallMode('slot-after', 'before', 'inject'), 'slot-after')
+  assert.equal(resolveRecallMode('off', 'before', 'inject'), 'off')
+})
+
+test('resolveRecallMode: legacy placement and withoutSlot still map correctly', () => {
+  const { resolveRecallMode } = recallModule
+  // The 0.16.0 defaults - what an untouched store has.
+  assert.equal(resolveRecallMode(undefined, undefined, undefined), 'slot-after')
+  assert.equal(resolveRecallMode(undefined, 'after', 'inject'), 'slot-after')
+  assert.equal(resolveRecallMode(undefined, 'before', 'inject'), 'slot-before')
+  // `off` was an independent switch, so it beat placement.
+  assert.equal(resolveRecallMode(undefined, 'before', 'off'), 'off')
+  assert.equal(resolveRecallMode(undefined, 'after', 'off'), 'off')
+  // An unknown mode string falls back to the legacy pair rather than breaking.
+  assert.equal(resolveRecallMode('nonsense', 'before', 'inject'), 'slot-before')
+})
+
+test('placementOfMode maps the two slot modes and nothing else', () => {
+  const { placementOfMode } = recallModule
+  assert.equal(placementOfMode('slot-before'), 'before')
+  assert.equal(placementOfMode('slot-after'), 'after')
+  assert.equal(placementOfMode('off'), null)
+})
+
+test('the daemon block lands where the mode says', async () => {
+  // The end-to-end shape: a `slot-before` mode must produce a message ahead of
+  // the user prompt, not appended at the tail.
+  const { applyRecall } = recallModule
+  // Hop 1 answers `{obsId, score}`, hop 2 answers `{obsId, observation:{...}}` -
+  // the shapes `buildBlock` actually reads. A flat `{title,text}` reply makes
+  // hop 2 look like "no results" and the block silently comes back null.
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body)
+    if (Array.isArray(body.expandIds)) {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            results: body.expandIds.map((id) => ({
+              obsId: id,
+              layer: 'memory',
+              observation: { title: 'daemon url decision', narrative: 'we agreed on the tailscale address', facts: [] },
+            })),
+          }
+        },
+      }
+    }
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { results: [{ obsId: 'obs_1', score: 1, layer: 'memory' }] }
+      },
+    }
+  }
+
+  for (const [mode, expectedFirst] of [['slot-before', false], ['slot-after', true]]) {
+    const handlers = new Map()
+    const ctx = {
+      logger: { warn: () => {}, info: () => {} },
+      on(event, handler) { handlers.set(event, handler) },
+      // No promptInject: force the history path so the placement is observable.
+      inject() {},
+      get() { return undefined },
+      effect: (factory) => factory(),
+    }
+    applyRecall(ctx, {
+      enabled: true,
+      url: 'http://daemon:3111',
+      secret: 's',
+      fetch: fetchImpl,
+      resolve: undefined,
+      mode,
+      limit: 5,
+      maxChars: 4000,
+      entryMaxChars: 400,
+      queryMaxChars: 800,
+      fetchTimeoutMs: 1200,
+      tailRatio: 0.95,
+      minQueryChars: 1,
+      minConfidence: 0,
+      includeLessons: false,
+      recallAgentId: undefined,
+    })
+    const handler = handlers.get('agent/pre-step')
+    assert.ok(handler, `${mode}: the fallback hook registered`)
+    const decision = {
+      kind: 'enter',
+      messages: [
+        { id: 'm1', role: 'user', source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'ctx' }] },
+        { id: 'm2', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'what did we decide about the daemon url' }] },
+      ],
+    }
+    const out = await handler({ agent: { session: { id: 's1', header: {} } }, turn: 1, step: 1, signal: undefined }, async () => decision)
+    const sources = out.messages.map((m) => m?.source?.form ?? m?.source?.kind)
+    const at = sources.indexOf('recall-history')
+    assert.ok(at >= 0, `${mode}: the block was injected`)
+    if (expectedFirst) {
+      assert.equal(at, sources.length - 1, `${mode}: appended at the tail`)
+    } else {
+      assert.ok(at < sources.length - 1, `${mode}: inserted before the prompt`)
+      assert.equal(sources[sources.length - 1], 'user', `${mode}: the prompt stays last`)
+    }
+  }
+})
